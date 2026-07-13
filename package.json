@@ -1,0 +1,30 @@
+{
+  "name": "bookmarks-sync",
+  "version": "0.1.0",
+  "description": "Self-hosted multi-user bookmark sync server (SQLite + Node.js)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "bookmarks",
+    "sync",
+    "sqlite",
+    "self-hosted"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.19.0",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "uuid": "^11.0.5"
+  }
+}
