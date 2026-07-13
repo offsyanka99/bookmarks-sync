@@ -98,7 +98,7 @@ bookmarks-sync/
 
 ```bash
 cp .env.example .env
-# Edit ADMIN_PASSWORD and SESSION_SECRET
+# Optional: change ADMIN_PASSWORD and SESSION_SECRET
 
 npm install
 npm start
@@ -110,6 +110,15 @@ Then open:
 |---|---|
 | Admin portal | http://127.0.0.1:31060/login |
 | API health | http://127.0.0.1:31059/health |
+
+**Default admin login (first bootstrap):**
+
+| Field | Default |
+|---|---|
+| Username | `admin` |
+| Password | `admin` |
+
+Change these before any real deployment. See [Session secret](#session-secret-session_secret) for `SESSION_SECRET`.
 
 Dev mode (auto-restart on file changes, Node 20+):
 
@@ -123,8 +132,10 @@ On the **first** start (when no admin exists in the database), the server create
 
 ```env
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-password
+ADMIN_PASSWORD=admin
 ```
+
+If `ADMIN_PASSWORD` is omitted, it defaults to `admin`. The server logs a warning when the default password is used.
 
 The admin **API key** is printed once in the server log and is always visible in the admin UI.
 
@@ -147,7 +158,7 @@ The admin **API key** is printed once in the server log and is always visible in
 | `ADMIN_PORT` | `31060` | **Admin UI** port (must differ from API) |
 | `SERVER_HOST` | `0.0.0.0` | Bind address for both ports |
 | `ADMIN_USERNAME` | `admin` | Admin username on first bootstrap (or reset) |
-| `ADMIN_PASSWORD` | — | Admin password on first bootstrap (or reset) |
+| `ADMIN_PASSWORD` | `admin` | Admin password on first bootstrap (or reset) |
 | `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from `.env` |
 | `SESSION_SECRET` | — | Signs admin session cookies (use a long random value) |
 | `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS |
@@ -157,6 +168,60 @@ The admin **API key** is printed once in the server log and is always visible in
 | `STATUS_MESSAGE` | — | Message returned by `GET /info` |
 
 `RESET_ADMIN_PASSWORD=false` (or omitted / commented out) is safe and does nothing. Only the value `true` triggers a reset.
+
+---
+
+## Session secret (`SESSION_SECRET`)
+
+```env
+SESSION_SECRET=dev-only-session-secret-change-me
+```
+
+This value is the **secret key used to sign the admin portal’s session cookie**.
+
+When you log in to the admin UI, Express creates a session and stores a cookie in your browser (`bms.sid`). That cookie is **signed** with `SESSION_SECRET` so the server can tell:
+
+1. The cookie was issued by **this** server  
+2. It was not **tampered with**
+
+If the secret is wrong or changed, existing sessions become invalid and you must log in again.
+
+### Why the default is only for local testing
+
+`dev-only-session-secret-change-me` is a **placeholder**. Anyone who knows that value can more easily forge or mess with session cookies. Fine on a private machine for development; **change it** before shared or internet-facing use.
+
+### How to set a strong secret
+
+1. Generate a long random string:
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+   Or with Node:
+
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+
+2. Put it in `.env`:
+
+   ```env
+   SESSION_SECRET=a3f8c1e9b2d04f6a7c8e1d9b0a4f3e2c...
+   ```
+
+3. Restart the server (`npm start`).
+4. Log in again at the admin portal (old cookies will no longer validate).
+
+Keep `SESSION_SECRET` private. Do not commit `.env` (it is listed in `.gitignore`).
+
+### Related credentials
+
+| Variable | Used for |
+|---|---|
+| `ADMIN_PASSWORD` | Admin web login (who you are) |
+| `SESSION_SECRET` | Signing the cookie after login (proves the session is genuine) |
+| User **API key** | Auth for the REST API / extension (not the admin web UI) |
 
 ---
 
@@ -305,7 +370,7 @@ docker run -d \
   -e SERVER_PORT=31059 \
   -e ADMIN_PORT=31060 \
   -e ADMIN_USERNAME=admin \
-  -e ADMIN_PASSWORD='your-secure-password' \
+  -e ADMIN_PASSWORD=admin \
   -e SESSION_SECRET='long-random-secret' \
   -e DB_PATH=/app/data/bookmarks.db \
   -v bookmarks-sync-data:/app/data \

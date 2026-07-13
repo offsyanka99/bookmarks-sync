@@ -14,23 +14,13 @@ function bootstrapAdmin() {
   const db = getDb();
   const adminCount = User.countAdmins();
   const username = (process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD;
+  const password = process.env.ADMIN_PASSWORD || 'admin';
   const reset = String(process.env.RESET_ADMIN_PASSWORD || '').toLowerCase() === 'true';
 
   if (adminCount === 0) {
-    if (!password || password.length < 1) {
-      console.error(
-        '[bootstrap] No admin users found. Set ADMIN_PASSWORD in .env and restart.'
-      );
-      console.error(
-        '[bootstrap] Example: ADMIN_USERNAME=admin  ADMIN_PASSWORD=your-secure-password'
-      );
-      process.exit(1);
-    }
-
-    if (password === 'change-me-admin-password' || password === 'admin') {
+    if (password === 'admin') {
       console.warn(
-        '[bootstrap] WARNING: using a weak ADMIN_PASSWORD — change it before any real use.'
+        '[bootstrap] WARNING: using default ADMIN_PASSWORD=admin — change it before any real use.'
       );
     }
 
