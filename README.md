@@ -2,7 +2,9 @@
 
 **Version:** `0.1.0`
 
-Self-hosted **bookmark sync server** built with **Node.js + Express + SQLite**.
+Self-hosted multi-user bookmark sync API for browsers and scripts. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS, with a companion browser extension planned next—not a full xBrowserSync clone (no mandatory E2E encryption).
+
+**Stack:** Node.js + Express + SQLite · **Auth:** admin session (UI) + per-user API keys (REST) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp.
 
 **Multi-user model** (inspired by [Baikal](https://github.com/sabre-io/Baikal)-style admin accounts and [xBrowserSync](https://github.com/offsyanka99/xbrowsersync)-style sync):
 
@@ -297,13 +299,110 @@ All routes below operate **only on that user’s bookmarks**.
 | `GET` | `/api/bookmarks` | List (`?folder=`, `?includeDeleted=true`) |
 | `GET` | `/api/bookmarks/:id` | Get one |
 | `POST` | `/api/bookmarks` | Create |
-| `PUT` | `/api/bookmarks/:id` | Update |
-| `DELETE` | `/api/bookmarks/:id` | Soft-delete (`?hard=true` permanent) |
-| `POST` | `/api/bookmarks/sync` | Push set: `{ "bookmarks": [...], "replace": false }` |
+| `PUT` | `/api/bookmarks/:id` | Update (optimistic lock; see below) |
+| `DELETE` | `/api/bookmarks/:id` | Soft-delete (`?hard=true` permanent; optimistic lock) |
+| `POST` | `/api/bookmarks/sync` | Merge push by `updatedAt` (see conflict handling) |
 | `GET` | `/api/bookmarks/export` | JSON export |
-| `POST` | `/api/bookmarks/import` | Import `{ "bookmarks": [...], "replace": false }` |
+| `POST` | `/api/bookmarks/import` | Same merge rules as sync |
 
 Invalid or missing key → `401`. Data from other users is never returned.
+
+### Conflict handling
+
+Multi-device safety uses **`updatedAt`** (ISO-8601) as an optimistic version token. No E2E encryption is involved.
+
+#### Single-item writes (`PUT` / `DELETE`)
+
+1. Client `GET`s a bookmark and keeps `updatedAt`.
+2. On `PUT`, send the **same** `updatedAt` in the body (plus changed fields).
+3. Server applies the change only if it still matches; then sets a new `updatedAt`.
+4. If the server row changed → **`409 Conflict`** with the current `server` object.
+
+```bash
+# Update (must include updatedAt from last GET)
+curl -s -X PUT "$BASE/api/bookmarks/$ID" \
+  -H "Authorization: Bearer $USER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"title\":\"New title\",\"updatedAt\":\"$UPDATED_AT\"}"
+```
+
+| Situation | HTTP | Notes |
+|---|---|---|
+| `updatedAt` matches | `200` | Write applied |
+| `updatedAt` missing | `400` | `missing_updated_at` |
+| `updatedAt` differs | `409` | `conflict` + `server` bookmark |
+| Force overwrite | `200` | `?force=true` or `"force": true` skips the check |
+
+Delete:
+
+```bash
+curl -s -X DELETE "$BASE/api/bookmarks/$ID?updatedAt=$UPDATED_AT" \
+  -H "Authorization: Bearer $USER_API_KEY"
+
+# Permanent
+curl -s -X DELETE "$BASE/api/bookmarks/$ID?hard=true&updatedAt=$UPDATED_AT" \
+  -H "Authorization: Bearer $USER_API_KEY"
+
+# Force delete without version check
+curl -s -X DELETE "$BASE/api/bookmarks/$ID?force=true" \
+  -H "Authorization: Bearer $USER_API_KEY"
+```
+
+Create with a client-chosen `id` that already exists → **`409`**.
+
+#### Sync / import (`POST /api/bookmarks/sync`)
+
+Body:
+
+```json
+{
+  "bookmarks": [ { "id": "...", "title": "...", "url": "...", "updatedAt": "..." } ],
+  "replace": false,
+  "lastSyncAt": "2026-07-13T12:00:00.000Z",
+  "force": false
+}
+```
+
+Per bookmark (same user):
+
+| Case | Action |
+|---|---|
+| No server row | **Create** |
+| Client `updatedAt` **newer** than server | **Update** server |
+| Client `updatedAt` **older** than server | **Skip**; listed in `conflicts` (`server_newer`) |
+| Same `updatedAt` | **Unchanged** |
+| `force: true` | Always apply client values |
+
+`replace: true` soft-deletes server bookmarks **not** in the payload:
+
+- With **`lastSyncAt`**: only deletes rows whose `updatedAt` is **≤** `lastSyncAt` (does not wipe newer server-only edits).
+- Without `lastSyncAt`, or with **`force: true`**: aggressive replace (client membership wins).
+
+Example response:
+
+```json
+{
+  "created": 1,
+  "updated": 2,
+  "unchanged": 5,
+  "skipped": 1,
+  "deleted": 0,
+  "processed": 9,
+  "conflicts": [
+    {
+      "id": "...",
+      "reason": "server_newer",
+      "server": { },
+      "client": { }
+    }
+  ],
+  "count": 8,
+  "bookmarks": [ ],
+  "lastSyncAt": "..."
+}
+```
+
+Clients (e.g. a browser extension) should store `lastSyncAt`, send it on the next sync, and resolve `conflicts` locally when needed.
 
 ### Bookmark object
 

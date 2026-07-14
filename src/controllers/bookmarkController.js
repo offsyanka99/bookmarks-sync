@@ -56,6 +56,37 @@ function userId(req) {
   return req.user.id;
 }
 
+function isForce(req) {
+  return (
+    req.query.force === 'true' ||
+    req.body?.force === true ||
+    req.body?.force === 'true'
+  );
+}
+
+function sendResultError(res, result) {
+  if (result.code === 'NOT_FOUND') {
+    return res.status(404).json({ error: 'Bookmark not found' });
+  }
+  if (result.code === 'MISSING_UPDATED_AT') {
+    return res.status(400).json({
+      error: 'missing_updated_at',
+      message: result.message,
+      server: result.server,
+    });
+  }
+  if (result.code === 'CONFLICT') {
+    return res.status(409).json({
+      error: 'conflict',
+      reason: result.reason,
+      message: result.message || 'Bookmark conflict',
+      server: result.server,
+      clientUpdatedAt: result.clientUpdatedAt,
+    });
+  }
+  return res.status(500).json({ error: 'Unexpected result' });
+}
+
 const bookmarkController = {
   list(req, res) {
     try {
@@ -94,12 +125,12 @@ const bookmarkController = {
         return res.status(400).json({ error: errors.join('; ') });
       }
 
-      const bookmark = Bookmark.create(userId(req), req.body);
-      res.status(201).json(bookmark);
-    } catch (err) {
-      if (err && err.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
-        return res.status(409).json({ error: 'Bookmark with this id already exists' });
+      const result = Bookmark.create(userId(req), req.body);
+      if (!result.ok) {
+        return sendResultError(res, result);
       }
+      res.status(201).json(result.bookmark);
+    } catch (err) {
       console.error('create bookmark:', err);
       res.status(500).json({ error: 'Failed to create bookmark' });
     }
@@ -114,11 +145,13 @@ const bookmarkController = {
         return res.status(400).json({ error: errors.join('; ') });
       }
 
-      const bookmark = Bookmark.update(userId(req), req.params.id, req.body);
-      if (!bookmark) {
-        return res.status(404).json({ error: 'Bookmark not found' });
+      const result = Bookmark.update(userId(req), req.params.id, req.body, {
+        force: isForce(req),
+      });
+      if (!result.ok) {
+        return sendResultError(res, result);
       }
-      res.json(bookmark);
+      res.json(result.bookmark);
     } catch (err) {
       console.error('update bookmark:', err);
       res.status(500).json({ error: 'Failed to update bookmark' });
@@ -127,19 +160,31 @@ const bookmarkController = {
 
   remove(req, res) {
     try {
+      const force = isForce(req);
+      const updatedAt =
+        req.query.updatedAt ||
+        req.body?.updatedAt ||
+        null;
+
       if (req.query.hard === 'true') {
-        const ok = Bookmark.hardDelete(userId(req), req.params.id);
-        if (!ok) {
-          return res.status(404).json({ error: 'Bookmark not found' });
+        const result = Bookmark.hardDelete(userId(req), req.params.id, {
+          updatedAt,
+          force,
+        });
+        if (!result.ok) {
+          return sendResultError(res, result);
         }
         return res.status(204).send();
       }
 
-      const bookmark = Bookmark.softDelete(userId(req), req.params.id);
-      if (!bookmark) {
-        return res.status(404).json({ error: 'Bookmark not found' });
+      const result = Bookmark.softDelete(userId(req), req.params.id, {
+        updatedAt,
+        force,
+      });
+      if (!result.ok) {
+        return sendResultError(res, result);
       }
-      res.json(bookmark);
+      res.json(result.bookmark);
     } catch (err) {
       console.error('delete bookmark:', err);
       res.status(500).json({ error: 'Failed to delete bookmark' });
@@ -160,14 +205,28 @@ const bookmarkController = {
       }
 
       const replace = Boolean(req.body.replace);
-      const result = Bookmark.syncFromClient(userId(req), list, { replace });
-      Bookmark.setMeta(`last_sync_at:${userId(req)}`, new Date().toISOString());
+      const force = Boolean(req.body.force);
+      const lastSyncAt = req.body.lastSyncAt || null;
+
+      const result = Bookmark.syncFromClient(userId(req), list, {
+        replace,
+        lastSyncAt,
+        force,
+      });
+      const lastSync = new Date().toISOString();
+      Bookmark.setMeta(`last_sync_at:${userId(req)}`, lastSync);
 
       res.json({
-        synced: result.synced,
+        created: result.created,
+        updated: result.updated,
+        unchanged: result.unchanged,
+        skipped: result.skipped,
+        deleted: result.deleted,
+        processed: result.processed,
+        conflicts: result.conflicts,
         count: result.bookmarks.length,
         bookmarks: result.bookmarks,
-        lastSyncAt: Bookmark.getMeta(`last_sync_at:${userId(req)}`),
+        lastSyncAt: lastSync,
       });
     } catch (err) {
       console.error('sync bookmarks:', err);
@@ -205,11 +264,23 @@ const bookmarkController = {
       }
 
       const replace = Boolean(req.body?.replace);
-      const result = Bookmark.syncFromClient(userId(req), list, { replace });
+      const force = Boolean(req.body?.force);
+      const lastSyncAt = req.body?.lastSyncAt || null;
+
+      const result = Bookmark.syncFromClient(userId(req), list, {
+        replace,
+        lastSyncAt,
+        force,
+      });
       Bookmark.setMeta(`last_import_at:${userId(req)}`, new Date().toISOString());
 
       res.json({
-        imported: result.synced,
+        created: result.created,
+        updated: result.updated,
+        unchanged: result.unchanged,
+        skipped: result.skipped,
+        deleted: result.deleted,
+        conflicts: result.conflicts,
         count: result.bookmarks.length,
         bookmarks: result.bookmarks,
       });

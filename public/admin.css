@@ -68,7 +68,7 @@ a:hover {
 }
 
 .container {
-  width: min(1100px, 100% - 2rem);
+  width: min(1500px, 100% - 2rem);
   margin: 1.5rem auto 3rem;
 }
 
@@ -251,10 +251,13 @@ input:focus {
 
 .table-wrap {
   overflow-x: auto;
+  width: 100%;
 }
 
 table {
   width: 100%;
+  min-width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
   font-size: 0.92rem;
 }
@@ -321,7 +324,7 @@ th {
 
 .api-key {
   display: inline-block;
-  max-width: 16rem;
+  max-width: 28rem;
   background: var(--surface-2);
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
