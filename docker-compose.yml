@@ -9,15 +9,35 @@ services:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "31059"
       ADMIN_PORT: "31060"
+      # Required in production — no weak defaults (Compose fails if unset/empty)
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-      SESSION_SECRET: ${SESSION_SECRET:-dev-only-session-secret-change-me}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD to a strong password}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET (e.g. openssl rand -hex 32)}
       DB_PATH: /app/data/bookmarks.db
       STATUS_MESSAGE: ${STATUS_MESSAGE:-Bookmarks Sync service is online}
       ALLOW_NEW_SYNCS: ${ALLOW_NEW_SYNCS:-true}
       MAX_SYNC_SIZE_BYTES: ${MAX_SYNC_SIZE_BYTES:-1048576}
+      # Comma-separated browser origins, or leave empty for no CORS (curl/extension-friendly)
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Set true when behind a reverse proxy so rate limits see real client IPs
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /app/data/logs
+      LOG_TO_STDOUT: "true"
+      LOG_TO_FILE: "true"
+      LOG_STDOUT_FORMAT: json
+      LOG_MAX_FILES: ${LOG_MAX_FILES:-14d}
+      LOG_MAX_SIZE: ${LOG_MAX_SIZE:-20m}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      NODE_ENV: production
     volumes:
       - bookmarks-data:/app/data
+    # Dozzle reads Docker container stdout/stderr — keep LOG_TO_STDOUT=true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     healthcheck:
       test:

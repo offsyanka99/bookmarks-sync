@@ -9,7 +9,7 @@ function formatDate(iso) {
   }
 }
 
-function usersPage({ user, users, flash, counts = {} }) {
+function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
   const rows = users
     .map((u) => {
       const badge = u.isAdmin
@@ -33,7 +33,22 @@ function usersPage({ user, users, flash, counts = {} }) {
             <div class="muted small">${escapeHtml(u.displayName || '')}</div>
           </td>
           <td class="mono small">
-            <code class="api-key" title="Full API key">${escapeHtml(u.apiKey || '')}</code>
+            <div class="api-key-row">
+              <code class="api-key" title="Full API key">${escapeHtml(u.apiKey || '')}</code>
+              ${
+                u.apiKey
+                  ? `<button type="button" class="btn btn-icon btn-copy-key" data-copy="${escapeHtml(u.apiKey)}" title="Copy API key" aria-label="Copy API key for ${escapeHtml(u.username)}">
+                      <svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                      <svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </button>`
+                  : ''
+              }
+            </div>
           </td>
           <td class="num">${bmCount}</td>
           <td class="muted small">${escapeHtml(formatDate(u.createdAt))}</td>
@@ -115,11 +130,82 @@ function usersPage({ user, users, flash, counts = {} }) {
       </div>
     </section>
 
+    <section class="card">
+      <h2>Logging</h2>
+      <p class="muted small">
+        Logs go to <strong>stdout</strong> and rotating files under
+        <code>${escapeHtml(logConfig?.logDir || 'data/logs')}</code>.
+      </p>
+      <form method="post" action="/settings/log-level" class="form-grid">
+        <label>
+          Log level
+          <select name="level" required>
+            ${(logConfig?.levels || ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'])
+              .map((lvl) => {
+                const selected = (logConfig?.level || 'info') === lvl ? ' selected' : '';
+                return `<option value="${escapeHtml(lvl)}"${selected}>${escapeHtml(lvl)}</option>`;
+              })
+              .join('')}
+          </select>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save log level</button>
+        </div>
+      </form>
+      <p class="muted small" style="margin-top:0.75rem">
+        Current: <code>${escapeHtml(logConfig?.level || 'info')}</code>
+        · stdout: ${logConfig?.logToStdout === false ? 'off' : 'on'}
+        · files: ${logConfig?.logToFile === false ? 'off' : 'on'}
+        · retention: ${escapeHtml(String(logConfig?.maxFiles || '14d'))}
+        · max size: ${escapeHtml(String(logConfig?.maxSize || '20m'))}
+      </p>
+    </section>
+
     <section class="card muted small">
       <p><strong>API usage</strong> (per user):</p>
       <pre>curl -H "Authorization: Bearer &lt;api-key&gt;" http://localhost:${escapeHtml(process.env.SERVER_PORT || '31059')}/api/bookmarks</pre>
       <p>Bookmark management UI for end users is planned next. For now, admins manage accounts only.</p>
-    </section>`;
+    </section>
+
+    <script>
+      (function () {
+        document.querySelectorAll('.btn-copy-key').forEach(function (btn) {
+          btn.addEventListener('click', async function () {
+            var value = btn.getAttribute('data-copy') || '';
+            if (!value) return;
+            try {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(value);
+              } else {
+                var ta = document.createElement('textarea');
+                ta.value = value;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+              }
+              btn.classList.add('copied');
+              btn.title = 'Copied!';
+              var copyIcon = btn.querySelector('.icon-copy');
+              var checkIcon = btn.querySelector('.icon-check');
+              if (copyIcon) copyIcon.hidden = true;
+              if (checkIcon) checkIcon.hidden = false;
+              setTimeout(function () {
+                btn.classList.remove('copied');
+                btn.title = 'Copy API key';
+                if (copyIcon) copyIcon.hidden = false;
+                if (checkIcon) checkIcon.hidden = true;
+              }, 1500);
+            } catch (err) {
+              btn.title = 'Copy failed';
+            }
+          });
+        });
+      })();
+    </script>`;
 
   return layout({ title: 'Users', user, flash, body });
 }

@@ -9,18 +9,28 @@ const path = require('path');
 
 const { getDb, closeDb } = require('./src/utils/db');
 const { bootstrapAdmin } = require('./src/utils/bootstrap');
+const {
+  logger,
+  morganStream,
+  loadLevelFromDb,
+  getLogConfig,
+  LOG_DIR,
+} = require('./src/utils/logger');
+const { resolveSessionSecret } = require('./src/utils/securityConfig');
 const bookmarksRouter = require('./src/routes/bookmarks');
 const adminRouter = require('./src/routes/admin');
 const Bookmark = require('./src/models/Bookmark');
-const User = require('./src/models/User');
 
 const API_PORT = Number(process.env.SERVER_PORT) || 31059;
 const ADMIN_PORT = Number(process.env.ADMIN_PORT) || 31060;
 const HOST = process.env.SERVER_HOST || '0.0.0.0';
-const SESSION_SECRET =
-  process.env.SESSION_SECRET || 'dev-only-session-secret-change-me';
-const logFormat = process.env.NODE_ENV === 'production' ? 'combined' : 'dev';
+// Fail closed in production if SESSION_SECRET is missing/insecure
+const SESSION_SECRET = resolveSessionSecret();
 const publicDir = path.join(__dirname, 'public');
+
+// HTTP access log format → winston (stdout + files)
+const morganFormat =
+  process.env.NODE_ENV === 'production' ? 'combined' : 'dev';
 
 function createHelmet() {
   return helmet({
@@ -34,8 +44,78 @@ function createHelmet() {
   });
 }
 
-function jsonErrorHandler(err, _req, res, _next) {
-  console.error('Unhandled error:', err);
+/**
+ * CORS for the bookmark API.
+ * - Unset / empty: no CORS middleware (non-browser clients and same-origin only)
+ * - "*": reflect any Origin (dev / explicit open)
+ * - comma-separated list: allowlist only
+ */
+function createApiCors() {
+  const raw = (process.env.CORS_ORIGINS || '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  const methods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
+  const allowedHeaders = ['Content-Type', 'Authorization', 'X-API-Key'];
+
+  if (raw === '*') {
+    return cors({
+      origin: true,
+      methods,
+      allowedHeaders,
+    });
+  }
+
+  const allowlist = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return cors({
+    origin(origin, callback) {
+      // Non-browser clients (curl, extensions without Origin) — allow
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (allowlist.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
+    methods,
+    allowedHeaders,
+  });
+}
+
+function applyTrustProxy(app) {
+  const raw = (process.env.TRUST_PROXY || '').trim().toLowerCase();
+  if (!raw || raw === 'false' || raw === '0') {
+    return;
+  }
+  if (raw === 'true' || raw === '1') {
+    app.set('trust proxy', 1);
+    return;
+  }
+  const asNum = Number(raw);
+  if (Number.isFinite(asNum) && asNum >= 0) {
+    app.set('trust proxy', asNum);
+    return;
+  }
+  // e.g. "loopback", "uniquelocal", or a subnet list
+  app.set('trust proxy', process.env.TRUST_PROXY);
+}
+
+function jsonErrorHandler(err, req, res, _next) {
+  if (err && err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'Origin not allowed by CORS' });
+  }
+  logger.error('Unhandled API error', {
+    err: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+  });
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ error: 'Payload too large' });
   }
@@ -44,26 +124,26 @@ function jsonErrorHandler(err, _req, res, _next) {
 
 // --- Bookmark sync API (SERVER_PORT) ---
 const apiApp = express();
+applyTrustProxy(apiApp);
 apiApp.use(createHelmet());
-apiApp.use(
-  cors({
-    origin: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
-  })
-);
-apiApp.use(morgan(logFormat));
+const apiCors = createApiCors();
+if (apiCors) {
+  apiApp.use(apiCors);
+}
+apiApp.use(morgan(morganFormat, { stream: morganStream }));
 apiApp.use(express.json({ limit: process.env.MAX_SYNC_SIZE_BYTES || '1mb' }));
 
 apiApp.get('/health', (_req, res) => {
   try {
     getDb();
     res.json({ status: 'ok', uptime: process.uptime() });
-  } catch {
+  } catch (err) {
+    logger.error('Health check failed', { err: err.message });
     res.status(503).json({ status: 'error', error: 'database unavailable' });
   }
 });
 
+// Public /info is intentionally minimal (no counts, ports, or log internals)
 apiApp.get('/info', (_req, res) => {
   try {
     getDb();
@@ -75,12 +155,9 @@ apiApp.get('/info', (_req, res) => {
       allowNewSyncs: process.env.ALLOW_NEW_SYNCS !== 'false',
       maxSyncSizeBytes: Number(process.env.MAX_SYNC_SIZE_BYTES) || 1048576,
       multiUser: true,
-      userCount: User.count(),
-      bookmarkCount: Bookmark.count(),
-      apiPort: API_PORT,
-      adminPort: ADMIN_PORT,
     });
-  } catch {
+  } catch (err) {
+    logger.error('Info endpoint failed', { err: err.message });
     res.status(503).json({ status: 'error', error: 'database unavailable' });
   }
 });
@@ -98,7 +175,7 @@ code{background:#f4f4f4;padding:.1em .35em;border-radius:4px}</style></head>
     <li><code>GET /info</code></li>
     <li><code>/api/bookmarks</code> — requires per-user API key</li>
   </ul>
-  <p>Admin UI runs on port <strong>${ADMIN_PORT}</strong>.</p>
+  <p>Admin UI runs on a separate port (see your deployment config).</p>
 </body></html>`);
 });
 
@@ -107,8 +184,9 @@ apiApp.use(jsonErrorHandler);
 
 // --- Admin portal (ADMIN_PORT) ---
 const adminApp = express();
+applyTrustProxy(adminApp);
 adminApp.use(createHelmet());
-adminApp.use(morgan(logFormat));
+adminApp.use(morgan(morganFormat, { stream: morganStream }));
 adminApp.use(express.urlencoded({ extended: false }));
 adminApp.use(
   session({
@@ -126,40 +204,51 @@ adminApp.use(
 );
 adminApp.use(express.static(publicDir));
 
-// Mount admin UI at / (and keep /admin aliases for old bookmarks)
 adminApp.use('/', adminRouter);
 adminApp.use('/admin', adminRouter);
 
-adminApp.use((err, _req, res, _next) => {
-  console.error('Admin error:', err);
+adminApp.use((err, req, res, _next) => {
+  logger.error('Unhandled admin error', {
+    err: err.message,
+    stack: err.stack,
+    path: req.path,
+  });
   res.status(500).type('html').send('<h1>Internal server error</h1>');
 });
 
-// DB + bootstrap before listen
+// DB + bootstrap + restore log level
+// (bootstrap fails closed in production on weak ADMIN_PASSWORD when creating/resetting)
 getDb();
 bootstrapAdmin();
-
-if (
-  process.env.NODE_ENV === 'production' &&
-  SESSION_SECRET === 'dev-only-session-secret-change-me'
-) {
-  console.warn('[security] Set a strong SESSION_SECRET in production.');
-}
+loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));
 
 const displayHost = HOST === '0.0.0.0' ? '127.0.0.1' : HOST;
 const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'bookmarks.db');
+const logCfg = getLogConfig();
 
 const apiServer = apiApp.listen(API_PORT, HOST, () => {
-  console.log(`API listening on http://${displayHost}:${API_PORT}`);
+  logger.info('API listening', {
+    url: `http://${displayHost}:${API_PORT}`,
+    port: API_PORT,
+  });
 });
 
 const adminServer = adminApp.listen(ADMIN_PORT, HOST, () => {
-  console.log(`Admin UI listening on http://${displayHost}:${ADMIN_PORT}/`);
-  console.log(`SQLite database: ${dbPath}`);
+  logger.info('Admin UI listening', {
+    url: `http://${displayHost}:${ADMIN_PORT}/`,
+    port: ADMIN_PORT,
+  });
+  logger.info('Runtime paths', {
+    database: dbPath,
+    logDir: LOG_DIR,
+    logLevel: logCfg.level,
+    logToStdout: logCfg.logToStdout,
+    logToFile: logCfg.logToFile,
+  });
 });
 
 function shutdown(signal) {
-  console.log(`${signal} received, shutting down...`);
+  logger.info(`${signal} received, shutting down`);
   let closed = 0;
   const done = () => {
     closed += 1;

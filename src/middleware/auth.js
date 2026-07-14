@@ -1,4 +1,14 @@
 const User = require('../models/User');
+const { createRateLimiter } = require('../utils/rateLimit');
+const { logger } = require('../utils/logger');
+
+// Failed API-key attempts only (valid keys do not consume the budget)
+const apiKeyFailLimiter = createRateLimiter({
+  windowMs: Number(process.env.API_KEY_RATE_WINDOW_MS) || 15 * 60 * 1000,
+  max: Number(process.env.API_KEY_RATE_MAX) || 60,
+  message: 'Too many invalid API key attempts, try again later',
+  keyFn: (req) => `apikey-fail:${req.ip || req.socket?.remoteAddress || 'unknown'}`,
+});
 
 /**
  * API-key auth for /api/* routes (browser extension / scripts).
@@ -6,9 +16,17 @@ const User = require('../models/User');
  *   Authorization: Bearer <user API key>
  *   X-API-Key: <user API key>
  *
- * Sets req.user on success.
+ * Sets req.user on success. Invalid/missing keys are rate-limited per IP.
  */
 function requireApiKey(req, res, next) {
+  const blocked = apiKeyFailLimiter.checkBlocked(req);
+  if (blocked.blocked) {
+    res.set('Retry-After', String(blocked.retryAfter));
+    return res.status(429).json({
+      error: 'Too many invalid API key attempts, try again later',
+    });
+  }
+
   const headerKey = req.get('x-api-key');
   const authHeader = req.get('authorization') || '';
   const bearer = authHeader.toLowerCase().startsWith('bearer ')
@@ -17,14 +35,18 @@ function requireApiKey(req, res, next) {
 
   const provided = headerKey || bearer;
   if (!provided) {
+    apiKeyFailLimiter.recordFailure(req);
     return res.status(401).json({ error: 'Unauthorized: missing API key' });
   }
 
   const user = User.findByApiKey(provided);
   if (!user) {
+    apiKeyFailLimiter.recordFailure(req);
+    logger.warn('Invalid API key attempt', { ip: req.ip });
     return res.status(401).json({ error: 'Unauthorized: invalid API key' });
   }
 
+  apiKeyFailLimiter.reset(req);
   req.user = user;
   return next();
 }

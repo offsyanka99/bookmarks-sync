@@ -1,0 +1,36 @@
+# Secrets & local env — never bake into the image
+.env
+.env.*
+!.env.example
+
+# Runtime data & logs
+data/
+*.db
+*.db-*
+*.log
+logs/
+
+# Dependencies (installed in the image)
+node_modules/
+
+# Git / IDE / OS
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Docs and non-runtime artifacts (optional shrink)
+*.md
+!README.md
+# Extension is loaded unpacked in the browser, not into the server image
+bookmarks-extension/
+
+# Local tooling
+.grok
+coverage
+.nyc_output
+npm-debug.log*
+yarn-error.log*

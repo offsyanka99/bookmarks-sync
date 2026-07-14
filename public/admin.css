@@ -135,7 +135,8 @@ label {
 }
 
 input[type="text"],
-input[type="password"] {
+input[type="password"],
+select {
   width: 100%;
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
@@ -143,6 +144,10 @@ input[type="password"] {
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
+}
+
+select {
+  cursor: pointer;
 }
 
 input:focus {
@@ -322,12 +327,46 @@ th {
   word-break: break-all;
 }
 
+.api-key-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  max-width: 32rem;
+}
+
 .api-key {
   display: inline-block;
+  flex: 1;
+  min-width: 0;
   max-width: 28rem;
   background: var(--surface-2);
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
+}
+
+.btn-icon {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.btn-icon:hover {
+  color: var(--text);
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.btn-copy-key.copied {
+  color: var(--ok);
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.btn-copy-key svg {
+  display: block;
 }
 
 .actions {

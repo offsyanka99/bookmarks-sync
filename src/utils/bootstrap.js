@@ -1,6 +1,10 @@
 const User = require('../models/User');
 const { getDb } = require('./db');
 const { hashPassword } = require('./crypto');
+const {
+  assertAdminPasswordSafe,
+  resolveBootstrapAdminPassword,
+} = require('./securityConfig');
 
 /**
  * Ensure at least one admin exists.
@@ -9,20 +13,18 @@ const { hashPassword } = require('./crypto');
  *   - RESET_ADMIN_PASSWORD=true (overwrite existing admin login from .env)
  *
  * Changing .env alone does NOT update an existing admin — set RESET_ADMIN_PASSWORD=true once, restart, then remove it.
+ *
+ * In production, bootstrap/reset refuses known-default or short ADMIN_PASSWORD values.
  */
 function bootstrapAdmin() {
   const db = getDb();
   const adminCount = User.countAdmins();
   const username = (process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD || 'admin';
+  const password = resolveBootstrapAdminPassword();
   const reset = String(process.env.RESET_ADMIN_PASSWORD || '').toLowerCase() === 'true';
 
   if (adminCount === 0) {
-    if (password === 'admin') {
-      console.warn(
-        '[bootstrap] WARNING: using default ADMIN_PASSWORD=admin — change it before any real use.'
-      );
-    }
+    assertAdminPasswordSafe(password, { context: 'bootstrap the first admin' });
 
     const admin = User.create({
       username,
@@ -39,6 +41,8 @@ function bootstrapAdmin() {
       console.error('[bootstrap] RESET_ADMIN_PASSWORD=true but ADMIN_PASSWORD is empty.');
       process.exit(1);
     }
+
+    assertAdminPasswordSafe(password, { context: 'reset the admin password' });
 
     const adminRow = db
       .prepare(`SELECT id FROM users WHERE is_admin = 1 ORDER BY created_at ASC LIMIT 1`)

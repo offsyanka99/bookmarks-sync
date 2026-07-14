@@ -1,8 +1,8 @@
 # Bookmarks Sync
 
-**Version:** `0.1.0`
+**Version:** `0.2.0`
 
-Self-hosted multi-user bookmark sync API for browsers and scripts. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS, with a companion browser extension planned next—not a full xBrowserSync clone (no mandatory E2E encryption).
+Self-hosted multi-user bookmark sync API for browsers and scripts, plus a **Chrome/Brave** companion extension. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
 **Stack:** Node.js + Express + SQLite · **Auth:** admin session (UI) + per-user API keys (REST) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp.
 
@@ -10,10 +10,17 @@ Self-hosted multi-user bookmark sync API for browsers and scripts. Admins manage
 
 | Who | How they authenticate | What they get |
 |---|---|---|
-| **Admin** | Username + password (web UI) | Create/manage users, view API keys |
-| **Users** | Per-user **API key** (REST API / future extension) | Only their own bookmarks |
+| **Admin** | Username + password (web UI) | Create/manage users, view/copy API keys |
+| **Users** | Per-user **API key** (REST API / browser extension) | Only their own bookmarks |
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
+
+### What’s new in 0.2.0
+
+- **Chrome/Brave MV3 extension** (`bookmarks-extension/`): sync now, change-based / startup / time-based sync, merge · download · upload strategies
+- **Security hardening:** production fail-closed secrets, rate-limited login & API-key failures, session regenerate on login, tighter CORS & public `/info`, `.dockerignore`
+- **Admin UI:** one-click **copy** for user API keys
+- Logging, Docker Compose secret requirements, and docs for generating `SESSION_SECRET`
 
 ---
 
@@ -73,7 +80,7 @@ bookmarks-sync/
 │       ├── db.js
 │       ├── crypto.js
 │       └── bootstrap.js
-├── bookmarks-extension/      # Placeholder for browser extension
+├── bookmarks-extension/      # Chrome/Brave MV3 companion extension
 └── README.md
 ```
 
@@ -84,15 +91,18 @@ bookmarks-sync/
 - **Multi-user**: admin creates accounts; no public signup
 - **Admin portal** on a **separate port** from the API
 - **Username + password** for admin web login
-- **Per-user API keys** for `/api/bookmarks` (extension / scripts)
+- **Per-user API keys** for `/api/bookmarks` (extension / scripts), with **copy** in the admin UI
 - Bookmarks **scoped by user** (`user_id`)
 - SQLite (WAL mode), soft deletes, import/export, full sync
 - Bootstrap admin from `.env`; optional password reset via env flag
+- **Production safeguards:** strong `SESSION_SECRET` / `ADMIN_PASSWORD` required; login & API-key rate limits
+- **Browser extension (Chrome / Brave)** — see [`bookmarks-extension/`](./bookmarks-extension/)
 
-**Not in v1 yet**
+**Not yet**
 
 - End-user web UI for managing bookmarks in the browser
-- Browser extension (folder reserved)
+- Firefox extension pack
+- CSRF tokens on admin forms / hashed API keys (planned hardening)
 
 ---
 
@@ -100,7 +110,7 @@ bookmarks-sync/
 
 ```bash
 cp .env.example .env
-# Optional: change ADMIN_PASSWORD and SESSION_SECRET
+# Local dev may keep ADMIN_PASSWORD=admin; set a strong SESSION_SECRET if you like
 
 npm install
 npm start
@@ -113,14 +123,14 @@ Then open:
 | Admin portal | http://127.0.0.1:31060/login |
 | API health | http://127.0.0.1:31059/health |
 
-**Default admin login (first bootstrap):**
+**Default admin login (first bootstrap, development only):**
 
 | Field | Default |
 |---|---|
 | Username | `admin` |
 | Password | `admin` |
 
-Change these before any real deployment. See [Session secret](#session-secret-session_secret) for `SESSION_SECRET`.
+**Production** (`NODE_ENV=production`, including Docker Compose) **refuses to start** with a default/placeholder `SESSION_SECRET` or a weak `ADMIN_PASSWORD` when creating/resetting the admin. See [Session secret](#session-secret-session_secret) and [Production secrets](#production-secrets).
 
 Dev mode (auto-restart on file changes, Node 20+):
 
@@ -137,7 +147,7 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin
 ```
 
-If `ADMIN_PASSWORD` is omitted, it defaults to `admin`. The server logs a warning when the default password is used.
+If `ADMIN_PASSWORD` is omitted, it defaults to `admin` in development only (with a console warning). In production, bootstrap/reset **exits** if the password is missing, a known default (`admin`, etc.), or shorter than 8 characters.
 
 The admin **API key** is printed once in the server log and is always visible in the admin UI.
 
@@ -160,28 +170,96 @@ The admin **API key** is printed once in the server log and is always visible in
 | `ADMIN_PORT` | `31060` | **Admin UI** port (must differ from API) |
 | `SERVER_HOST` | `0.0.0.0` | Bind address for both ports |
 | `ADMIN_USERNAME` | `admin` | Admin username on first bootstrap (or reset) |
-| `ADMIN_PASSWORD` | `admin` | Admin password on first bootstrap (or reset) |
+| `ADMIN_PASSWORD` | `admin` (dev only) | Admin password on first bootstrap (or reset); **strong required in production** |
 | `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from `.env` |
-| `SESSION_SECRET` | — | Signs admin session cookies (use a long random value) |
+| `SESSION_SECRET` | dev placeholder (dev only) | Signs admin session cookies; **strong required in production** |
 | `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS |
+| `CORS_ORIGINS` | empty | API CORS: empty = off; `*` = any origin; or comma-separated allowlist |
+| `TRUST_PROXY` | `false` | Set when behind a reverse proxy so `req.ip` / rate limits are correct |
+| `LOGIN_RATE_MAX` | `20` | Max admin login attempts per IP per window |
+| `LOGIN_RATE_WINDOW_MS` | `900000` | Login rate-limit window (15 minutes) |
+| `API_KEY_RATE_MAX` | `60` | Max **failed** API-key attempts per IP per window |
+| `API_KEY_RATE_WINDOW_MS` | `900000` | API-key failure rate-limit window (15 minutes) |
 | `DB_PATH` | `./data/bookmarks.db` | SQLite database path |
 | `ALLOW_NEW_SYNCS` | `true` | Set `false` to reject sync pushes |
 | `MAX_SYNC_SIZE_BYTES` | `1048576` | Max request body size (1 MiB) |
-| `STATUS_MESSAGE` | — | Message returned by `GET /info` |
+| `STATUS_MESSAGE` | — | Public message on `GET /info` |
+| `LOG_LEVEL` | `info` | Initial log level (`error`…`silly`); overridable in Admin UI |
+| `LOG_DIR` | `./data/logs` | Rotating log file directory |
+| `LOG_TO_STDOUT` | `true` | Write logs to stdout (**required for Dozzle**) |
+| `LOG_TO_FILE` | `true` | Write rotating files under `LOG_DIR` |
+| `LOG_STDOUT_FORMAT` | see note | `json` (prod/Dozzle) or `pretty` (local) |
+| `LOG_MAX_FILES` | `14d` | File retention (winston-daily-rotate-file) |
+| `LOG_MAX_SIZE` | `20m` | Max size per log file before rotate |
 
 `RESET_ADMIN_PASSWORD=false` (or omitted / commented out) is safe and does nothing. Only the value `true` triggers a reset.
+
+### Production secrets
+
+When `NODE_ENV=production` (Docker Compose sets this):
+
+| Check | Behavior |
+|---|---|
+| `SESSION_SECRET` missing, &lt;16 chars, or a known placeholder | **Process exits** before listen |
+| First admin bootstrap / `RESET_ADMIN_PASSWORD=true` with weak `ADMIN_PASSWORD` | **Process exits** |
+| Docker Compose | `ADMIN_PASSWORD` and `SESSION_SECRET` are **required** (no weak defaults) |
+
+Generate `SESSION_SECRET` with `openssl rand -hex 32` (or the Node one-liner under [How to generate a strong secret](#how-to-generate-a-strong-secret)), then:
+
+```bash
+export ADMIN_PASSWORD='your-strong-password'
+export SESSION_SECRET="$(openssl rand -hex 32)"
+docker compose up -d --build
+```
+
+---
+
+## Logging & Dozzle (TrueNAS)
+
+Logs use **Winston** with:
+
+| Destination | Purpose |
+|---|---|
+| **stdout** | Docker / TrueNAS container logs → **[Dozzle](https://dozzle.dev/)** |
+| **Rotating files** | `data/logs/app-YYYY-MM-DD.log`, `error-*.log`, `exceptions-*.log`, `rejections-*.log` |
+
+### Levels
+
+`error` &lt; `warn` &lt; `info` &lt; `http` &lt; `verbose` &lt; `debug` &lt; `silly`
+
+Change at runtime in the **Admin UI → Logging** section (persisted in the DB). Initial value comes from `LOG_LEVEL`.
+
+### What is logged
+
+- Server start / shutdown  
+- Admin login success/failure, user create/delete, API key regenerate  
+- HTTP access (Morgan → `http` level)  
+- Bookmark sync/import summaries  
+- API/admin errors, uncaught exceptions, unhandled rejections  
+
+### Dozzle on TrueNAS Scale
+
+Dozzle tails **container stdout/stderr**, not files inside the volume.
+
+1. Keep **`LOG_TO_STDOUT=true`** (default).  
+2. In production, logs are **JSON lines** on stdout (`LOG_STDOUT_FORMAT=json` or `NODE_ENV=production`).  
+3. Deploy bookmarks-sync as a Docker/TrueNAS app so it appears in Dozzle’s container list.  
+4. Open Dozzle and select the **bookmarks-sync** container — live logs appear there.  
+5. Optional: keep `LOG_TO_FILE=true` for on-disk archives under the data volume (`/app/data/logs` in Docker).
+
+Local dev uses prettier console lines unless you set `LOG_STDOUT_FORMAT=json`.
 
 ---
 
 ## Session secret (`SESSION_SECRET`)
 
 ```env
-SESSION_SECRET=dev-only-session-secret-change-me
+SESSION_SECRET=a-long-random-value-from-openssl-rand-hex-32
 ```
 
 This value is the **secret key used to sign the admin portal’s session cookie**.
 
-When you log in to the admin UI, Express creates a session and stores a cookie in your browser (`bms.sid`). That cookie is **signed** with `SESSION_SECRET` so the server can tell:
+When you log in to the admin UI, Express creates a **new** session id (`session.regenerate`) and stores a cookie in your browser (`bms.sid`). That cookie is **signed** with `SESSION_SECRET` so the server can tell:
 
 1. The cookie was issued by **this** server  
 2. It was not **tampered with**
@@ -190,30 +268,34 @@ If the secret is wrong or changed, existing sessions become invalid and you must
 
 ### Why the default is only for local testing
 
-`dev-only-session-secret-change-me` is a **placeholder**. Anyone who knows that value can more easily forge or mess with session cookies. Fine on a private machine for development; **change it** before shared or internet-facing use.
+In development, a well-known placeholder is used if `SESSION_SECRET` is unset. Anyone who knows that value can more easily forge session cookies. **Production refuses to start** with a missing, short, or placeholder secret.
 
-### How to set a strong secret
+### How to generate a strong secret
 
-1. Generate a long random string:
+Either command prints a 64-character hex string (32 random bytes):
 
-   ```bash
-   openssl rand -hex 32
-   ```
+```bash
+openssl rand -hex 32
+```
 
-   Or with Node:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-   ```
+**Local `.env`**
 
-2. Put it in `.env`:
+```env
+SESSION_SECRET=paste-the-output-here
+```
 
-   ```env
-   SESSION_SECRET=a3f8c1e9b2d04f6a7c8e1d9b0a4f3e2c...
-   ```
+Then restart the server (`npm start`) and log in again at the admin portal (old cookies will no longer validate).
 
-3. Restart the server (`npm start`).
-4. Log in again at the admin portal (old cookies will no longer validate).
+**Docker Compose / shell**
+
+```bash
+export SESSION_SECRET="$(openssl rand -hex 32)"
+export ADMIN_PASSWORD='your-strong-password'
+```
 
 Keep `SESSION_SECRET` private. Do not commit `.env` (it is listed in `.gitignore`).
 
@@ -275,7 +357,7 @@ Base URL: `http://127.0.0.1:<SERVER_PORT>/`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Liveness probe |
-| `GET` | `/info` | Service status (includes `multiUser`, ports, counts) |
+| `GET` | `/info` | Minimal public status (`name`, `version`, `status`, `message`, `allowNewSyncs`, …) |
 | `GET` | `/` | Short API landing page |
 
 ### Authenticated (per-user API key)
@@ -457,7 +539,9 @@ curl -s "$BASE/api/bookmarks/export" \
 
 ## Docker
 
-Expose **both** ports and set admin bootstrap env vars:
+`.dockerignore` excludes `.env`, `data/`, and `node_modules/` so secrets and the SQLite DB are never copied into image layers.
+
+Expose **both** ports and pass **strong** secrets (production fails closed without them):
 
 ```bash
 docker build -t bookmarks-sync:latest .
@@ -469,47 +553,45 @@ docker run -d \
   -e SERVER_PORT=31059 \
   -e ADMIN_PORT=31060 \
   -e ADMIN_USERNAME=admin \
-  -e ADMIN_PASSWORD=admin \
-  -e SESSION_SECRET='long-random-secret' \
+  -e ADMIN_PASSWORD='your-strong-password' \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
   -e DB_PATH=/app/data/bookmarks.db \
+  -e NODE_ENV=production \
   -v bookmarks-sync-data:/app/data \
   bookmarks-sync:latest
 ```
 
-### docker-compose example
+### docker-compose
 
-```yaml
-services:
-  bookmarks-sync:
-    build: .
-    ports:
-      - "31059:31059"   # API
-      - "31060:31060"   # Admin UI
-    environment:
-      SERVER_PORT: "31059"
-      ADMIN_PORT: "31060"
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      SESSION_SECRET: ${SESSION_SECRET}
-      DB_PATH: /app/data/bookmarks.db
-      STATUS_MESSAGE: Bookmarks Sync is online
-    volumes:
-      - bookmarks-data:/app/data
-    restart: unless-stopped
+Set secrets in the environment (or a local `.env` next to Compose — not baked into the image):
 
-volumes:
-  bookmarks-data:
+```bash
+export ADMIN_PASSWORD='your-strong-password'
+export SESSION_SECRET="$(openssl rand -hex 32)"
+docker compose up -d --build
 ```
 
-Database file: `/app/data/bookmarks.db` inside the volume.
+`docker-compose.yml` requires `ADMIN_PASSWORD` and `SESSION_SECRET` (no weak defaults). Database file: `/app/data/bookmarks.db` inside the volume.
 
 ---
 
-## Browser extension
+## Browser extension (Chrome / Brave)
 
-The `bookmarks-extension/` folder is reserved for a companion extension that will call the multi-user API with each user’s API key.
+Companion **Manifest V3** extension lives in [`bookmarks-extension/`](./bookmarks-extension/).
 
-Until then, use `curl`, scripts, or any HTTP client against `SERVER_PORT`.
+| | |
+|---|---|
+| Browsers | Chrome, Brave (Chromium MV3) |
+| Auth | Per-user API key (`Authorization: Bearer …`) |
+| Install | Load unpacked from `bookmarks-extension/` |
+
+**Quick path:**
+
+1. Run the server; create a user; copy the API key from the admin UI.
+2. `chrome://extensions` or `brave://extensions` → Developer mode → **Load unpacked** → select `bookmarks-extension/`.
+3. Options: API base URL = `http://127.0.0.1:31059` (API port), paste API key → Save → **Sync now** in the popup.
+
+Full details: [bookmarks-extension/README.md](./bookmarks-extension/README.md).
 
 ---
 

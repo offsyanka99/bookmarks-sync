@@ -1,4 +1,5 @@
 const Bookmark = require('../models/Bookmark');
+const { logger } = require('../utils/logger');
 
 function isValidUrl(url) {
   if (typeof url !== 'string' || !url.trim()) return false;
@@ -98,7 +99,7 @@ const bookmarkController = {
       });
       res.json({ count: bookmarks.length, bookmarks });
     } catch (err) {
-      console.error('list bookmarks:', err);
+      logger.error('list bookmarks failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to list bookmarks' });
     }
   },
@@ -111,7 +112,7 @@ const bookmarkController = {
       }
       res.json(bookmark);
     } catch (err) {
-      console.error('get bookmark:', err);
+      logger.error('get bookmark failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to get bookmark' });
     }
   },
@@ -127,11 +128,15 @@ const bookmarkController = {
 
       const result = Bookmark.create(userId(req), req.body);
       if (!result.ok) {
+        if (result.code === 'CONFLICT') {
+          logger.info('create bookmark conflict', { userId: userId(req), reason: result.reason });
+        }
         return sendResultError(res, result);
       }
+      logger.debug('bookmark created', { userId: userId(req), id: result.bookmark.id });
       res.status(201).json(result.bookmark);
     } catch (err) {
-      console.error('create bookmark:', err);
+      logger.error('create bookmark failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to create bookmark' });
     }
   },
@@ -149,11 +154,17 @@ const bookmarkController = {
         force: isForce(req),
       });
       if (!result.ok) {
+        if (result.code === 'CONFLICT') {
+          logger.info('update bookmark conflict', {
+            userId: userId(req),
+            id: req.params.id,
+          });
+        }
         return sendResultError(res, result);
       }
       res.json(result.bookmark);
     } catch (err) {
-      console.error('update bookmark:', err);
+      logger.error('update bookmark failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to update bookmark' });
     }
   },
@@ -186,7 +197,7 @@ const bookmarkController = {
       }
       res.json(result.bookmark);
     } catch (err) {
-      console.error('delete bookmark:', err);
+      logger.error('delete bookmark failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to delete bookmark' });
     }
   },
@@ -216,6 +227,16 @@ const bookmarkController = {
       const lastSync = new Date().toISOString();
       Bookmark.setMeta(`last_sync_at:${userId(req)}`, lastSync);
 
+      logger.info('bookmarks sync', {
+        userId: userId(req),
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+        deleted: result.deleted,
+        conflicts: result.conflicts.length,
+        replace,
+      });
+
       res.json({
         created: result.created,
         updated: result.updated,
@@ -229,7 +250,7 @@ const bookmarkController = {
         lastSyncAt: lastSync,
       });
     } catch (err) {
-      console.error('sync bookmarks:', err);
+      logger.error('sync bookmarks failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to sync bookmarks' });
     }
   },
@@ -247,7 +268,7 @@ const bookmarkController = {
       res.setHeader('Content-Disposition', 'attachment; filename="bookmarks-export.json"');
       res.json(payload);
     } catch (err) {
-      console.error('export bookmarks:', err);
+      logger.error('export bookmarks failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to export bookmarks' });
     }
   },
@@ -274,6 +295,13 @@ const bookmarkController = {
       });
       Bookmark.setMeta(`last_import_at:${userId(req)}`, new Date().toISOString());
 
+      logger.info('bookmarks import', {
+        userId: userId(req),
+        created: result.created,
+        updated: result.updated,
+        conflicts: result.conflicts.length,
+      });
+
       res.json({
         created: result.created,
         updated: result.updated,
@@ -285,7 +313,7 @@ const bookmarkController = {
         bookmarks: result.bookmarks,
       });
     } catch (err) {
-      console.error('import bookmarks:', err);
+      logger.error('import bookmarks failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to import bookmarks' });
     }
   },
