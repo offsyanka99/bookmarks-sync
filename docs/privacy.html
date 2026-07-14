@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Bookmarks Sync</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        line-height: 1.55;
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1rem 3rem;
+        color: #0f172a;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin-bottom: 0.25rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin-top: 1.75rem;
+      }
+      .meta {
+        color: #64748b;
+        font-size: 0.9rem;
+      }
+      ul {
+        padding-left: 1.2rem;
+      }
+      a {
+        color: #0f766e;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Privacy Policy — Bookmarks Sync</h1>
+    <p class="meta">
+      Browser extension (Chrome, Brave, Firefox)<br />
+      Last updated: 14 July 2026<br />
+      Project:
+      <a href="https://github.com/offsyanka99/bookmarks-sync"
+        >github.com/offsyanka99/bookmarks-sync</a
+      >
+    </p>
+
+    <h2>Single purpose</h2>
+    <p>
+      This extension syncs the user’s browser bookmarks with a
+      <strong>self-hosted Bookmarks Sync server</strong> that the user (or their
+      administrator) configures.
+    </p>
+
+    <h2>Does this extension collect user data?</h2>
+    <p>
+      <strong>Yes.</strong> It handles bookmark data and connection settings so
+      sync can work. It does <strong>not</strong> send that data to the
+      extension developer by default, and it does not include advertising or
+      third-party analytics.
+    </p>
+
+    <h2>What data is handled</h2>
+    <ul>
+      <li>
+        <strong>Bookmarks</strong> — titles, URLs, folders, and order. Read from
+        the browser and sent to <em>your</em> server when you sync.
+      </li>
+      <li>
+        <strong>API base URL and API key</strong> — stored only in this
+        browser’s extension storage so the extension can reach your server.
+      </li>
+      <li>
+        <strong>Sync settings</strong> — strategy, intervals, failsafe options;
+        stored in extension storage on this device.
+      </li>
+      <li>
+        <strong>Technical labels</strong> — optional request headers (e.g.
+        browser name, extension version) sent only to your configured server
+        for its own logs.
+      </li>
+    </ul>
+
+    <h2>Where data goes</h2>
+    <ul>
+      <li>
+        <strong>On this device:</strong> settings and keys in Chrome/Firefox
+        extension storage.
+      </li>
+      <li>
+        <strong>On the network:</strong> only to the API base URL
+        <em>you enter</em> (your self-hosted server).
+      </li>
+      <li>
+        <strong>Not to the developer:</strong> the extension author does not
+        operate a default cloud that receives your bookmarks or API keys.
+      </li>
+    </ul>
+
+    <h2>What we do not do</h2>
+    <ul>
+      <li>We do not sell user data.</li>
+      <li>We do not use bookmarks for advertising.</li>
+      <li>We do not require an account with the extension developer.</li>
+      <li>
+        We do not ship built-in analytics or crash reporting to third parties.
+      </li>
+    </ul>
+
+    <h2>Permissions and network access</h2>
+    <p>
+      The extension may request optional host access for the origin of the API
+      URL you configure. That access is used only to call your Bookmarks Sync
+      server (for example health checks and bookmark sync APIs).
+    </p>
+
+    <h2>Server you run</h2>
+    <p>
+      If you host the Bookmarks Sync server, that server stores bookmarks under
+      <em>your</em> access control, backup, and retention practices. This policy
+      covers the browser extension; your server deployment is your
+      responsibility.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions and issues:
+      <a href="https://github.com/offsyanka99/bookmarks-sync/issues"
+        >GitHub Issues</a
+      >
+      on
+      <a href="https://github.com/offsyanka99/bookmarks-sync"
+        >offsyanka99/bookmarks-sync</a
+      >.
+    </p>
+  </body>
+</html>
