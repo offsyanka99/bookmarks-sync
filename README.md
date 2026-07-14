@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `0.9.1`
+**Version:** `0.9.2`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -15,12 +15,12 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
 
-### What’s new in 0.9.1
+### What’s new in 0.9.2
 
-- **Sync fix:** same-`updatedAt` merges now detect changes to **tags** and **favicon** (previously left as “unchanged”)
-- **Extension 0.9.x:** Chrome / Brave / Firefox layout (`chrome/` + `firefox/`), folders + order, destructive failsafe UI, shared icons, `npm run ext:sync` / `ext:check`
-- **Admin:** export ZIP, clear bookmarks, URL-only bookmark counts, footer version
-- Earlier **0.2.0** base: extension scaffold, production secret checks, rate limits, API-key copy
+- **Firefox AMO:** `data_collection_permissions` (`bookmarksInfo`), `strict_min_version` **128.0**, no `innerHTML` in popup status pill, Chrome-only reorder hook without static Firefox API name
+- **0.9.1:** same-`updatedAt` sync also applies **tags** / **favicon** changes
+- **0.9.x extension:** Chrome / Brave / Firefox layout, folders + order, failsafe UI, shared icons, `ext:sync` / `ext:check`
+- **Admin:** export ZIP, clear bookmarks, URL-only counts
 
 ---
 
@@ -83,6 +83,8 @@ bookmarks-sync/
 │   ├── scripts/sync-firefox.mjs   # npm run ext:sync (chrome → firefox)
 │   ├── scripts/check-extension-sync.mjs  # npm run ext:check
 │   └── README.md
+├── dist/
+│   └── bookmarks-sync-firefox-*.xpi  # Mozilla-signed Firefox package (tracked)
 └── README.md
 ```
 
@@ -591,7 +593,7 @@ Full reference (options, strategies, troubleshooting): **[bookmarks-extension/RE
 
 | | |
 |---|---|
-| **Browsers** | Chrome 116+, Brave, Firefox 121+ |
+| **Browsers** | Chrome 116+, Brave, Firefox 128+ |
 | **Auth** | Per-user API key (`Authorization: Bearer bms_…`) |
 | **Talks to** | API port (`SERVER_PORT`), **not** the admin UI port |
 | **Chromium install** | Load **unpacked** → `bookmarks-extension/chrome/` |
@@ -632,16 +634,19 @@ The extension does **not** use the admin password. Create a normal user (or use 
 
 ### Install — Firefox
 
-**Permanent (recommended — keeps settings after close):**
+**Permanent (recommended — works on release Firefox):**
 
-```bash
-npm run ext:pack-firefox
-# creates dist/bookmarks-sync-firefox.xpi
+A **Mozilla-signed** XPI is in the repo:
+
+```text
+dist/bookmarks-sync-firefox-0.9.2.xpi
 ```
 
-Install the `.xpi` as described in  
-[bookmarks-extension/FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md)  
-(Developer Edition unsigned, or Mozilla-signed for release Firefox).
+1. `about:addons` → gear → **Install Add-on From File…**
+2. Choose that `.xpi` → confirm → **Options** → API URL + key → **Save**.
+
+Full steps, updates, and self-sign workflow:  
+[bookmarks-extension/FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md)
 
 **Temporary (dev only — removed when Firefox quits):**
 
@@ -711,7 +716,7 @@ Authorization: Bearer bms_<your-user-api-key>
 | Sync hits wrong service | URL must be **API** port, not admin port |
 | `service_worker is currently disabled` | Load `bookmarks-extension/firefox/`, not `chrome/` |
 | Firefox missing latest UI/code | Run `npm run ext:sync`, then reload the temporary add-on |
-| Firefox extension gone after close | Temporary add-on only lasts one session — use `npm run ext:pack-firefox` and [FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md) |
+| Firefox extension gone after close | Temporary add-on only lasts one session — install the signed `dist/bookmarks-sync-firefox-*.xpi` ([FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md)) |
 | Changes not pushing | Strategy set to **Download**? Switch to **Merge** or **Upload** |
 | Server rejects large payload | Raise `MAX_SYNC_SIZE_BYTES` or split/clean bookmarks |
 

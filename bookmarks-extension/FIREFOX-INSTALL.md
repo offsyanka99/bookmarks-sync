@@ -9,32 +9,50 @@ For a **permanent** install that **survives restarts** and **keeps Options** (AP
 
 ---
 
-## 1. Build the `.xpi`
+## Recommended: Mozilla-signed XPI from this repo
+
+A **signed** release package is committed under `dist/`:
+
+```text
+dist/bookmarks-sync-firefox-0.9.2.xpi
+```
+
+Works on **normal release Firefox** (no Developer Edition, no `about:config` hacks).
+
+### Install
+
+1. Download the `.xpi` from the repo (`dist/` on GitHub, or your clone).
+2. Open Firefox → `about:addons`.
+3. Gear icon ⚙ → **Install Add-on From File…**
+4. Choose `dist/bookmarks-sync-firefox-0.9.2.xpi`.
+5. Confirm permissions → **Options** → API base URL + API key → **Save**.
+6. **Test connection** → **Sync now** from the toolbar popup.
+
+Extension id (must stay the same for updates):  
+`bookmarks-sync@offsyanka99.github.io`
+
+---
+
+## Build an unsigned `.xpi` yourself (dev)
 
 From the **repo root**:
 
 ```bash
 npm run ext:pack-firefox
+# → dist/bookmarks-sync-firefox.xpi  (unsigned rebuild)
 ```
 
-Creates:
-
-```text
-dist/bookmarks-sync-firefox.xpi
-```
-
-(Also: `npm run ext:pack` builds Chrome zip + Firefox xpi.)
+Unsigned packages only install on **Firefox Developer Edition / Nightly** with signatures disabled (Option A below), or after you sign them (Option B).
 
 ---
 
-## 2. Install permanently
+## Other install paths
 
-Mozilla **release** Firefox only allows **signed** extensions (or enterprise policy).  
-Pick one path:
+Mozilla **release** Firefox only allows **signed** extensions (or enterprise policy).
 
-### Option A — Firefox Developer Edition / Nightly (unsigned XPI, self-hosted)
+### Option A — Developer Edition / Nightly (unsigned XPI)
 
-Best for private / self-hosted use without an AMO account.
+Best for private testing without signing.
 
 1. Install [Firefox Developer Edition](https://www.mozilla.org/firefox/developer/) (or Nightly).
 2. Open `about:config` → accept the risk.
@@ -44,15 +62,12 @@ Best for private / self-hosted use without an AMO account.
    |---|---|
    | `xpinstall.signatures.required` | **`false`** |
 
-4. Open `about:addons` → gear icon ⚙ → **Install Add-on From File…**
-5. Choose `dist/bookmarks-sync-firefox.xpi`.
-6. Confirm permissions → open **Options** → enter API URL + key → **Save**.
+4. `about:addons` → gear → **Install Add-on From File…**
+5. Choose your unsigned `dist/bookmarks-sync-firefox.xpi`.
 
-After this, closing Firefox **keeps** the extension and your settings.
+> Release Firefox usually **ignores** `xpinstall.signatures.required = false`. Prefer the signed XPI in `dist/` for normal Firefox.
 
-> Standard “Firefox” release often **ignores** `xpinstall.signatures.required = false`. Use Developer Edition/Nightly for unsigned XPIs.
-
-### Option B — Mozilla-signed XPI (works on normal Firefox)
+### Option B — Sign a new build yourself (AMO)
 
 Requires a free [addons.mozilla.org](https://addons.mozilla.org) developer account and API credentials.
 
@@ -60,15 +75,14 @@ Requires a free [addons.mozilla.org](https://addons.mozilla.org) developer accou
 npm run ext:sync
 cd bookmarks-extension/firefox
 
-# One-time: create JWT from https://addons.mozilla.org/developers/addon/api/key/
+# One-time: JWT from https://addons.mozilla.org/developers/addon/api/key/
 export WEB_EXT_API_KEY="user:..."
 export WEB_EXT_API_SECRET="..."
 
 npx web-ext sign --channel=unlisted --source-dir . --artifacts-dir ../../dist
 ```
 
-Install the signed `.xpi` from `dist/` via **about:addons → Install Add-on From File**.  
-Unlisted signed add-ons work on **release** Firefox without the public AMO listing.
+Copy the signed artifact into `dist/` (e.g. `bookmarks-sync-firefox-X.Y.Z.xpi`), update docs, commit, and push so others can install from the repo.
 
 ### Option C — Enterprise policy (managed machines)
 
@@ -76,41 +90,39 @@ Use Firefox `policies.json` / Group Policy to force-install the XPI from a file 
 
 ---
 
-## 3. After install
+## After install
 
 1. Pin **Bookmarks Sync** to the toolbar if you want.
 2. **Options** → API base URL (e.g. `http://127.0.0.1:31039`) + API key → **Save**.
 3. **Test connection** → **Sync now**.
 
-Settings are stored in the browser under the fixed id  
-`bookmarks-sync@offsyanka99.github.io` — they survive restarts and extension updates **as long as you install updates with the same id** (rebuild/reinstall the new XPI; do not remove the add-on first unless you want a wipe).
+Settings are stored under the fixed id  
+`bookmarks-sync@offsyanka99.github.io` — they survive restarts and extension updates **as long as you install updates with the same id** (install the new XPI over the old one; do not remove the add-on first unless you want a wipe).
 
 ---
 
 ## Update the extension later
 
-```bash
-npm run ext:pack-firefox
-```
+1. Get the new signed `.xpi` from `dist/` (or rebuild + re-sign).
+2. **about:addons → Install Add-on From File** again.
 
-Then **about:addons → Install Add-on From File** again (same XPI name is fine).  
 Firefox updates the add-on and **keeps** settings when the gecko id is unchanged.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Fix |
+| Symptom | Fix |
 |---|---|
-| “Could not be verified for use in Firefox” | Release Firefox blocks unsigned XPIs → use Option A (Dev Edition) or Option B (sign). |
-| Extension gone after restart | You used **temporary** load — use the `.xpi` + Option A or B. |
-| Settings empty after reinstall | You removed the add-on (storage wiped) or id changed — keep id stable; prefer “install over” update. |
-| NetworkError on Test connection | Allow host access; prefer `http://127.0.0.1:PORT`; check HTTPS-Only Mode. |
+| “Could not be verified for use in Firefox” | Release Firefox blocks **unsigned** XPIs → use the **signed** file in `dist/`, or Option A (Dev Edition). |
+| Extension gone after restart | You used **temporary** load — use the `.xpi` install above. |
+| Settings wiped after update | Extension id changed, or you removed the add-on before reinstalling. |
+| Network / host permission errors | Options → **Save** or **Test connection** and allow access to the API origin. |
 
 ---
 
-## Related
+## Dev tips
 
-- Source folders: `bookmarks-extension/chrome/`, `bookmarks-extension/firefox/`
+- Edit code under `bookmarks-extension/chrome/`.
 - Sync code chrome → firefox: `npm run ext:sync`
-- Full extension docs: [README.md](./README.md)
+- Temporary load for debugging only: `about:debugging` → `bookmarks-extension/firefox/manifest.json`

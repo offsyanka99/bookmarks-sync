@@ -1,13 +1,13 @@
 # Bookmarks Sync — Browser Extensions
 
-**Version:** `0.9.1` (matches server package version)
+**Version:** `0.9.2` (matches server package version)
 
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 
 | Browser | Folder to load | Background |
 |---|---|---|
 | **Chrome / Brave** | [`chrome/`](./chrome/) | `service_worker` |
-| **Firefox 121+** | [`firefox/`](./firefox/) | `scripts` |
+| **Firefox 128+** | [`firefox/`](./firefox/) | `scripts` |
 
 **Source of truth for code:** `chrome/`. After editing, sync into Firefox:
 
@@ -65,15 +65,15 @@ npm run ext:sync
 
 ### Firefox — permanent (keeps settings after close)
 
-Temporary add-ons are **deleted when Firefox quits**. For a real install:
+Temporary add-ons are **deleted when Firefox quits**. For a real install on **release Firefox**, use the **Mozilla-signed** package in the repo:
 
-```bash
-npm run ext:pack-firefox
-# → dist/bookmarks-sync-firefox.xpi
+```text
+dist/bookmarks-sync-firefox-0.9.2.xpi
 ```
 
-Full steps (Developer Edition unsigned, or Mozilla-signed for release Firefox):  
-**[FIREFOX-INSTALL.md](./FIREFOX-INSTALL.md)**
+`about:addons` → gear → **Install Add-on From File…** → choose that file.
+
+Full steps, rebuilds, and re-signing: **[FIREFOX-INSTALL.md](./FIREFOX-INSTALL.md)**
 
 ### Firefox — temporary (dev only)
 
@@ -118,10 +118,10 @@ bookmarks-extension/
 | Edit code | Change files under **`chrome/`** |
 | Update Firefox copy | `npm run ext:sync` |
 | Guard chrome ↔ firefox | `npm run ext:check` |
-| Pack Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
+| Pack unsigned Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
+| Install Firefox (release) | **`dist/bookmarks-sync-firefox-0.9.2.xpi`** (Mozilla-signed) — see FIREFOX-INSTALL.md |
 | Load Chromium | Unpacked → **`chrome/`** |
 | Load Firefox (dev) | Temporary add-on → **`firefox/`** |
-| Load Firefox (permanent) | Install **`dist/bookmarks-sync-firefox.xpi`** — see FIREFOX-INSTALL.md |
 
 ---
 

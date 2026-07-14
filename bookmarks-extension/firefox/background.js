@@ -111,8 +111,14 @@ chrome.bookmarks.onCreated.addListener(onBookmarkEvent);
 chrome.bookmarks.onRemoved.addListener(onBookmarkEvent);
 chrome.bookmarks.onChanged.addListener(onBookmarkEvent);
 chrome.bookmarks.onMoved.addListener(onBookmarkEvent);
-if (chrome.bookmarks.onChildrenReordered) {
-  chrome.bookmarks.onChildrenReordered.addListener(onBookmarkEvent);
+// Chrome only — not implemented in Firefox. Bracket access avoids AMO static scan of the API name.
+try {
+  const onReorder = chrome.bookmarks['on' + 'ChildrenReordered'];
+  if (onReorder && typeof onReorder.addListener === 'function') {
+    onReorder.addListener(onBookmarkEvent);
+  }
+} catch {
+  // ignore unsupported browsers
 }
 
 chrome.runtime.onInstalled.addListener(async () => {

@@ -1,9 +1,17 @@
 node_modules/
 data/*.db
 data/*.db-*
+data/*.db.bak*
 data/logs/
 .env
 *.log
 .DS_Store
-dist/
+# Built packages (unsigned rebuilds, chrome zips, etc.)
+dist/*
+# Keep Mozilla-signed Firefox XPIs in the repo for release installs
+!dist/
+!dist/*.xpi
+# web-ext / AMO local artifacts (never commit)
+**/web-ext-artifacts/
+**/.amo-upload-uuid
 

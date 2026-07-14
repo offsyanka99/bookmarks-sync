@@ -1,6 +1,6 @@
 {
   "name": "bookmarks-sync",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Self-hosted multi-user bookmark sync server (SQLite + Node.js)",
   "main": "server.js",
   "scripts": {

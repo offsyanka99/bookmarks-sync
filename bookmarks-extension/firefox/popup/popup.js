@@ -80,11 +80,25 @@ function formatWhen(iso) {
   }
 }
 
-function statusPill(status) {
-  if (status === 'ok') return '<span class="pill pill-ok">ok</span>';
-  if (status === 'error') return '<span class="pill pill-err">error</span>';
-  if (status === 'running') return '<span class="pill pill-warn">running</span>';
-  return '<span class="muted">never</span>';
+/** Build status pill with DOM APIs (no innerHTML — AMO / CSP friendly). */
+function setStatusPill(container, status) {
+  if (!container) return;
+  container.replaceChildren();
+  const span = document.createElement('span');
+  if (status === 'ok') {
+    span.className = 'pill pill-ok';
+    span.textContent = 'ok';
+  } else if (status === 'error') {
+    span.className = 'pill pill-err';
+    span.textContent = 'error';
+  } else if (status === 'running') {
+    span.className = 'pill pill-warn';
+    span.textContent = 'running';
+  } else {
+    span.className = 'muted';
+    span.textContent = 'never';
+  }
+  container.appendChild(span);
 }
 
 async function refreshStatus() {
@@ -101,7 +115,7 @@ async function refreshStatus() {
   el.apiKeyState.textContent = settings.hasApiKey ? 'configured' : 'missing';
   el.apiKeyState.style.color = settings.hasApiKey ? '' : 'var(--danger)';
   el.lastSync.textContent = formatWhen(meta?.lastSyncAt || meta?.lastResult?.at);
-  el.syncStatus.innerHTML = statusPill(meta?.lastSyncStatus || 'never');
+  setStatusPill(el.syncStatus, meta?.lastSyncStatus || 'never');
 
   // Don't overwrite failsafe panel with last error
   if (!el.failsafePanel.hidden) return;

@@ -80,6 +80,19 @@ function syncIconsFromShared() {
   }
 }
 
+/** Firefox-only gecko block (AMO data consent + min version for optional_host_permissions). */
+function geckoSettings() {
+  return {
+    id: 'bookmarks-sync@offsyanka99.github.io',
+    // optional_host_permissions needs Firefox 128+; also covers modern MV3 baseline
+    strict_min_version: '128.0',
+    // Required for new AMO submissions — bookmarks sync to the user's own server
+    data_collection_permissions: {
+      required: ['bookmarksInfo'],
+    },
+  };
+}
+
 function buildFirefoxManifestFallback(version) {
   return {
     manifest_version: 3,
@@ -88,10 +101,7 @@ function buildFirefoxManifestFallback(version) {
     description:
       'Sync browser bookmarks with your self-hosted bookmarks-sync server.',
     browser_specific_settings: {
-      gecko: {
-        id: 'bookmarks-sync@offsyanka99.github.io',
-        strict_min_version: '121.0',
-      },
+      gecko: geckoSettings(),
     },
     icons: {
       16: 'icons/icon16.png',
@@ -161,14 +171,14 @@ try {
   ff.host_permissions = ['http://*/*', 'https://*/*'];
   ff.optional_host_permissions = ['http://*/*', 'https://*/*'];
   ff.optional_permissions = ['http://*/*', 'https://*/*'];
-  if (!ff.browser_specific_settings) {
-    ff.browser_specific_settings = {
-      gecko: {
-        id: 'bookmarks-sync@offsyanka99.github.io',
-        strict_min_version: '121.0',
-      },
-    };
-  }
+  // Always re-apply gecko block so AMO-required keys cannot drift
+  ff.browser_specific_settings = {
+    ...(ff.browser_specific_settings || {}),
+    gecko: {
+      ...(ff.browser_specific_settings?.gecko || {}),
+      ...geckoSettings(),
+    },
+  };
   fs.writeFileSync(firefoxManifestPath, `${JSON.stringify(ff, null, 2)}\n`);
 } catch (err) {
   console.warn('Could not align firefox version:', err.message);
