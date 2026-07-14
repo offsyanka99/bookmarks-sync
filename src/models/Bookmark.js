@@ -78,7 +78,7 @@ class Bookmark {
     const rows = db
       .prepare(
         `SELECT ${SELECT_COLS} FROM bookmarks ${where}
-         ORDER BY folder ASC, position ASC, title ASC`
+         ORDER BY folder ASC, position ASC, title ASC, id ASC`
       )
       .all(params);
 
@@ -373,7 +373,22 @@ class Bookmark {
       const ids = [];
 
       for (const item of items) {
-        if (!item.url && !item.id) continue;
+        // Allow folder rows (empty url + __dir__ tag) and normal URL bookmarks
+        const tagsArr = Array.isArray(item.tags)
+          ? item.tags
+          : typeof item.tags === 'string'
+            ? (() => {
+                try {
+                  const p = JSON.parse(item.tags);
+                  return Array.isArray(p) ? p : [];
+                } catch {
+                  return [];
+                }
+              })()
+            : [];
+        const isDir = tagsArr.includes('__dir__') || item.url === '' || item.url == null;
+        if (!item.url && !item.id && !isDir) continue;
+        if (isDir && !item.title && !item.id) continue;
 
         const id = item.id || uuidv4();
         ids.push(id);
@@ -385,7 +400,7 @@ class Bookmark {
           title: item.title ?? '',
           url: item.url ?? '',
           folder: item.folder ?? '',
-          tags: serializeTags(item.tags),
+          tags: serializeTags(isDir ? [...new Set([...tagsArr, '__dir__'])] : tagsArr),
           notes: item.notes ?? '',
           favicon: item.favicon ?? null,
           position: Number.isFinite(item.position) ? item.position : 0,
@@ -418,6 +433,9 @@ class Bookmark {
           continue;
         }
 
+        // Soft-deleted on server + client wants it active → treat as restore when client is not older
+        const resurrecting = Boolean(existing.deletedAt) && !payload.deleted_at;
+
         if (force) {
           updateRow.run(payload);
           stats.updated += 1;
@@ -426,6 +444,16 @@ class Bookmark {
 
         const clientMs = tsMs(clientUpdatedAt);
         const serverMs = tsMs(existing.updatedAt);
+
+        const contentChanged =
+          String(existing.title || '') !== String(payload.title || '') ||
+          String(existing.url || '') !== String(payload.url || '') ||
+          String(existing.folder || '') !== String(payload.folder || '') ||
+          Number(existing.position) !== Number(payload.position) ||
+          String(existing.notes || '') !== String(payload.notes || '') ||
+          serializeTags(existing.tags) !== String(payload.tags || '[]') ||
+          String(existing.favicon || '') !== String(payload.favicon || '') ||
+          resurrecting;
 
         if (clientMs > serverMs) {
           updateRow.run(payload);
@@ -439,23 +467,29 @@ class Bookmark {
               id,
               title: item.title,
               url: item.url,
+              folder: item.folder,
+              position: item.position,
               updatedAt: clientUpdatedAt,
             },
           });
           stats.skipped += 1;
+        } else if (contentChanged) {
+          // Same timestamp but order/folder/title/url differ — still apply (reorder case)
+          updateRow.run({ ...payload, updated_at: ts });
+          stats.updated += 1;
         } else {
-          // Same timestamp — leave server row as-is
           stats.unchanged += 1;
         }
       }
 
-      if (replace && ids.length >= 0) {
+      // Replace membership: never run on empty payload (would wipe the whole library).
+      // When replace=true with a non-empty client set, always soft-delete server rows
+      // not in that set — otherwise a client with a fresh ID map doubles the library
+      // (creates N new rows, leaves the previous N active).
+      if (replace && ids.length > 0) {
         const idsJson = JSON.stringify(ids);
         let result;
-        if (force || !lastSyncAt) {
-          // Aggressive: client set is source of truth for membership
-          result = softDeleteMissingAggressive.run({ ts, userId, ids: idsJson });
-        } else {
+        if (lastSyncAt && !force) {
           // Safe: do not delete rows updated on server after client last synced
           result = softDeleteMissingSafe.run({
             ts,
@@ -463,6 +497,9 @@ class Bookmark {
             ids: idsJson,
             lastSyncAt,
           });
+        } else {
+          // force, or first full replace without lastSyncAt
+          result = softDeleteMissingAggressive.run({ ts, userId, ids: idsJson });
         }
         stats.deleted = result.changes || 0;
       }
@@ -501,8 +538,81 @@ class Bookmark {
     return db.prepare('SELECT COUNT(*) AS c FROM bookmarks WHERE deleted_at IS NULL').get().c;
   }
 
+  /**
+   * Admin table count: URL bookmarks only (exclude folder rows with __dir__ / empty url).
+   */
   static countForUser(userId) {
-    return this.count(userId, { includeDeleted: false });
+    userId = requireUserId(userId);
+    const db = getDb();
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM bookmarks
+         WHERE user_id = ?
+           AND deleted_at IS NULL
+           AND url IS NOT NULL
+           AND TRIM(url) != ''
+           AND (tags IS NULL OR tags NOT LIKE '%"__dir__"%')`
+      )
+      .get(userId);
+    return row?.c || 0;
+  }
+
+  /**
+   * How many active rows would soft-delete if replace kept only clientIds.
+   * @param {string} userId
+   * @param {Iterable<string>} clientIds
+   */
+  static countActiveNotInIds(userId, clientIds) {
+    userId = requireUserId(userId);
+    const db = getDb();
+    const ids = [...new Set([...clientIds].filter(Boolean))];
+    if (ids.length === 0) {
+      return this.count(userId, { includeDeleted: false });
+    }
+    // SQLite has parameter limits; chunk large ID lists
+    const active = this.count(userId, { includeDeleted: false });
+    if (active === 0) return 0;
+
+    let kept = 0;
+    const chunkSize = 400;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '?').join(',');
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM bookmarks
+           WHERE user_id = ? AND deleted_at IS NULL AND id IN (${placeholders})`
+        )
+        .get(userId, ...chunk);
+      kept += row?.c || 0;
+    }
+    // kept may overcount if same id in multiple chunks — ids are unique so OK
+    return Math.max(0, active - kept);
+  }
+
+  /**
+   * Permanently delete all bookmarks for a user (active + soft-deleted).
+   * @returns {number} rows removed
+   */
+  static deleteAllForUser(userId) {
+    userId = requireUserId(userId);
+    const db = getDb();
+    const result = db.prepare('DELETE FROM bookmarks WHERE user_id = ?').run(userId);
+    return result.changes || 0;
+  }
+
+  /**
+   * Export payload for admin download / backups.
+   */
+  static exportForUser(userId, { includeDeleted = false } = {}) {
+    const bookmarks = this.findAll(userId, { includeDeleted });
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      userId,
+      count: bookmarks.length,
+      bookmarks,
+    };
   }
 
   static getMeta(key) {

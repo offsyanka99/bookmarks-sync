@@ -94,6 +94,8 @@ function requireAdmin(req, res, next) {
 function renderForbidden() {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/><title>Forbidden</title>
+<link rel="icon" href="/favicon.ico" sizes="any"/>
+<link rel="icon" type="image/png" href="/favicon.png"/>
 <link rel="stylesheet" href="/admin.css"/></head>
 <body class="page"><main class="card"><h1>403 — Forbidden</h1>
 <p>Admin access required.</p><p><a href="/login">Login</a></p></main></body></html>`;

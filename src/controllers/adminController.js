@@ -8,6 +8,7 @@ const {
   saveLevelToDb,
 } = require('../utils/logger');
 const { createRateLimiter } = require('../utils/rateLimit');
+const { zipStore } = require('../utils/zipStore');
 
 function takeFlash(req) {
   const flash = req.session.flash || null;
@@ -250,6 +251,140 @@ const adminController = {
         'error',
         err.code === 'VALIDATION' ? err.message : 'Failed to update log level'
       );
+    }
+    res.redirect('/');
+  },
+
+  /**
+   * Download one user's bookmarks as a ZIP containing JSON.
+   * GET /users/:id/export?includeDeleted=1
+   */
+  exportUserBookmarks(req, res) {
+    try {
+      const target = User.findById(req.params.id);
+      if (!target) {
+        setFlash(req, 'error', 'User not found');
+        return res.redirect('/');
+      }
+
+      const includeDeleted = req.query.includeDeleted === '1' || req.query.includeDeleted === 'true';
+      const payload = Bookmark.exportForUser(target.id, { includeDeleted });
+      payload.username = target.username;
+
+      const safeName = String(target.username || 'user').replace(/[^a-zA-Z0-9._-]+/g, '_');
+      const stamp = new Date().toISOString().slice(0, 10);
+      const jsonName = `${safeName}-bookmarks.json`;
+      const zipName = `${safeName}-bookmarks-${stamp}.zip`;
+
+      const zip = zipStore([
+        {
+          name: jsonName,
+          data: `${JSON.stringify(payload, null, 2)}\n`,
+        },
+      ]);
+
+      logger.info('Admin export user bookmarks', {
+        userId: target.id,
+        username: target.username,
+        count: payload.count,
+        includeDeleted,
+        by: req.user?.username,
+      });
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+      res.send(zip);
+    } catch (err) {
+      logger.error('exportUserBookmarks failed', { err: err.message, stack: err.stack });
+      setFlash(req, 'error', 'Failed to export bookmarks');
+      res.redirect('/');
+    }
+  },
+
+  /**
+   * Download all users' bookmarks as one ZIP (one JSON file per user).
+   * GET /export/bookmarks?includeDeleted=1
+   */
+  exportAllBookmarks(req, res) {
+    try {
+      const includeDeleted = req.query.includeDeleted === '1' || req.query.includeDeleted === 'true';
+      const users = User.findAll();
+      const files = [];
+      let total = 0;
+
+      for (const u of users) {
+        const payload = Bookmark.exportForUser(u.id, { includeDeleted });
+        payload.username = u.username;
+        total += payload.count;
+        const safeName = String(u.username || u.id).replace(/[^a-zA-Z0-9._-]+/g, '_');
+        files.push({
+          name: `${safeName}-bookmarks.json`,
+          data: `${JSON.stringify(payload, null, 2)}\n`,
+        });
+      }
+
+      files.unshift({
+        name: 'README.txt',
+        data: [
+          'Bookmarks Sync — admin export',
+          `Exported at: ${new Date().toISOString()}`,
+          `Users: ${users.length}`,
+          `Total bookmarks (files): ${total}`,
+          `includeDeleted: ${includeDeleted}`,
+          '',
+          'Each *-bookmarks.json file is the library for one user.',
+          '',
+        ].join('\n'),
+      });
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const zipName = `all-bookmarks-${stamp}.zip`;
+      const zip = zipStore(files);
+
+      logger.info('Admin export all bookmarks', {
+        users: users.length,
+        total,
+        includeDeleted,
+        by: req.user?.username,
+      });
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+      res.send(zip);
+    } catch (err) {
+      logger.error('exportAllBookmarks failed', { err: err.message, stack: err.stack });
+      setFlash(req, 'error', 'Failed to export all bookmarks');
+      res.redirect('/');
+    }
+  },
+
+  /**
+   * Permanently delete all bookmarks for a user (keeps the user account).
+   * POST /users/:id/clear-bookmarks
+   */
+  clearUserBookmarks(req, res) {
+    try {
+      const target = User.findById(req.params.id);
+      if (!target) {
+        setFlash(req, 'error', 'User not found');
+        return res.redirect('/');
+      }
+
+      const removed = Bookmark.deleteAllForUser(target.id);
+      logger.info('Admin cleared user bookmarks', {
+        userId: target.id,
+        username: target.username,
+        removed,
+        by: req.user?.username,
+      });
+      setFlash(
+        req,
+        'success',
+        `Cleared ${removed} bookmark(s) for "${target.username}" (account kept).`
+      );
+    } catch (err) {
+      logger.error('clearUserBookmarks failed', { err: err.message, stack: err.stack });
+      setFlash(req, 'error', 'Failed to clear bookmarks');
     }
     res.redirect('/');
   },

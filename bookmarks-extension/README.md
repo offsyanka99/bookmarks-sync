@@ -1,101 +1,225 @@
-# Bookmarks Sync — Browser Extension
+# Bookmarks Sync — Browser Extensions
 
-**Version:** `0.2.0` (matches server package version)
+**Version:** `0.9.1` (matches server package version)
 
-Manifest **V3** extension for **Chrome** and **Brave**. Syncs this browser’s bookmarks with your self-hosted [bookmarks-sync](../README.md) server using a per-user API key.
+Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
+
+| Browser | Folder to load | Background |
+|---|---|---|
+| **Chrome / Brave** | [`chrome/`](./chrome/) | `service_worker` |
+| **Firefox 121+** | [`firefox/`](./firefox/) | `scripts` |
+
+**Source of truth for code:** `chrome/`. After editing, sync into Firefox:
+
+```bash
+# From repo root
+npm run ext:sync
+```
+
+---
 
 ## Features
 
-- Configure **API base URL** + **API key**
-- **Test connection** (health, info, auth)
-- **Sync now** from the toolbar popup
-- **Sync behaviour**: change-based, on startup, time-based (interval, default 15 min)
-- **Strategies**: merge (recommended), download (server wins), upload (this browser wins)
-- Stable ID mapping between Chrome bookmark IDs and server UUIDs (stored in `chrome.storage.local`)
-- Host permission requested only for the origin you configure
+| Area | Details |
+|---|---|
+| **Connection** | API base URL + API key; test via `/health`, `/info`, list bookmarks |
+| **Manual sync** | Toolbar popup → **Sync now** |
+| **Change-based sync** | Debounced (~2.5s) after local create / edit / move / delete |
+| **Sync on startup** | Runs a few seconds after the browser profile starts |
+| **Time-based sync** | Alarms; default interval **15** minutes |
+| **Strategies** | Merge (recommended), download (server wins), upload (local wins) |
+| **ID map** | Browser bookmark id ↔ server UUID in extension storage |
+| **Host access** | Optional permission only for the API origin you configure |
 
-## Install (unpacked)
+---
 
-1. Start the bookmarks-sync **server** and create a user in the admin UI. Copy that user’s **API key**.
-2. Open the browser extensions page:
-   - Chrome: `chrome://extensions`
-   - Brave: `brave://extensions`
-3. Enable **Developer mode**.
-4. **Load unpacked** → select this folder:
+## Prerequisites (server)
+
+1. Run the bookmarks-sync **server** (`npm start` or Docker).  
+2. Open the **admin** UI; create a **user**.  
+3. **Copy** that user’s API key.  
+4. Note the **API** base URL (**not** the admin port):
+
+| Setup | Example |
+|---|---|
+| Defaults | `http://127.0.0.1:31059` |
+| Custom `SERVER_PORT=31039` | `http://127.0.0.1:31039` |
+| Reverse proxy | `https://bookmarks.example.com` |
+
+---
+
+## Install
+
+### Chrome / Brave
+
+1. Open `chrome://extensions` or `brave://extensions`.  
+2. Enable **Developer mode**.  
+3. **Load unpacked** → select:
 
    ```text
-   bookmarks-sync/bookmarks-extension
+   bookmarks-sync/bookmarks-extension/chrome
    ```
 
-5. Open the extension **Options** (or popup → Settings).
-6. Set:
-   - **API base URL** — e.g. `http://127.0.0.1:31059` (API port, **not** admin port)
-   - **API key** — `bms_…` from the admin portal
-7. Allow host access when the browser prompts.
-8. **Test connection**, then **Sync now**.
+4. Options → API base URL + API key → **Save** → allow host access.  
+5. **Test connection** → **Sync now**.
 
-## Usage
+### Firefox — permanent (keeps settings after close)
 
-| UI | Action |
+Temporary add-ons are **deleted when Firefox quits**. For a real install:
+
+```bash
+npm run ext:pack-firefox
+# → dist/bookmarks-sync-firefox.xpi
+```
+
+Full steps (Developer Edition unsigned, or Mozilla-signed for release Firefox):  
+**[FIREFOX-INSTALL.md](./FIREFOX-INSTALL.md)**
+
+### Firefox — temporary (dev only)
+
+1. `npm run ext:sync`  
+2. `about:debugging` → **Load Temporary Add-on** → `bookmarks-extension/firefox/manifest.json`  
+
+**Do not** load `chrome/` into Firefox (`service_worker` error).  
+Temporary installs do **not** survive restart.
+
+---
+
+## Layout
+
+```text
+bookmarks-extension/
+├── README.md
+├── FIREFOX-INSTALL.md       # Permanent .xpi install
+├── shared/
+│   └── icons/               # single source of truth for PNG icons
+├── scripts/
+│   ├── sync-firefox.mjs     # npm run ext:sync (chrome → firefox + icons)
+│   ├── check-extension-sync.mjs  # npm run ext:check
+│   └── pack.mjs             # npm run ext:pack-firefox
+├── chrome/                  # ← load in Chrome / Brave
+│   ├── manifest.json        # service_worker
+│   ├── background.js
+│   ├── lib/                 # folderCodec, treeCollect, treeApply, …
+│   ├── popup/
+│   ├── options/
+│   └── icons/               # filled from shared/icons on ext:sync
+└── firefox/                 # ← load in Firefox
+    ├── manifest.json        # scripts (no service_worker)
+    ├── background.js        # synced from chrome/
+    ├── lib/
+    ├── popup/
+    ├── options/
+    └── icons/
+```
+
+| Task | Command / path |
 |---|---|
-| Popup → **Sync now** | Run sync using the selected strategy |
-| Popup → **Test connection** | `/health`, `/info`, and (if key set) list bookmarks |
-| Options | Server, sync behaviour, strategy, advanced |
+| Edit code | Change files under **`chrome/`** |
+| Update Firefox copy | `npm run ext:sync` |
+| Guard chrome ↔ firefox | `npm run ext:check` |
+| Pack Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
+| Load Chromium | Unpacked → **`chrome/`** |
+| Load Firefox (dev) | Temporary add-on → **`firefox/`** |
+| Load Firefox (permanent) | Install **`dist/bookmarks-sync-firefox.xpi`** — see FIREFOX-INSTALL.md |
 
-### Sync behaviour (Options)
+---
 
-| Option | Effect |
+## Configure (Options)
+
+### Server
+
+- **API base URL** — API port only  
+- **API key** — `bms_…` from admin UI  
+
+### Sync behaviour
+
+| Option | Description |
 |---|---|
-| **Change-based synchronization** | Debounced sync (~2.5s) after local bookmark create/edit/move/delete |
-| **Sync on startup** | Sync a few seconds after browser profile start |
-| **Time-based synchronization** | Chrome alarm every N minutes (interval field, default **15**) |
+| Change-based synchronization | Sync after local bookmark changes |
+| Sync on startup | Sync when the browser starts |
+| Time-based synchronization | Periodic sync |
+| Synchronization interval | Minutes (default **15**), if time-based is on |
 
 ### Synchronization strategy
 
 | Strategy | Behaviour |
 |---|---|
-| **Merge** (recommended) | Push local + merge by `updatedAt` / `lastSyncAt`, then apply server set |
-| **Download** | Do not upload; rewrite this browser from the server list |
-| **Upload** | Force this browser’s tree onto the server (`force` + `replace`) |
+| **Merge** *(recommended)* | Push + merge by timestamps; apply server set |
+| **Download** | Server wins — rewrite this browser from the server |
+| **Upload** | This browser wins — force local tree onto the server |
 
-Grant host permission once in Settings so background sync (alarms / change / startup) can call your server without a prompt.
+### Advanced
+
+- Where **new** server bookmarks are created (Other Bookmarks / Bookmarks Bar)  
+- Remove local bookmarks deleted on the server  
+
+---
+
+## Popup
+
+| Control | Action |
+|---|---|
+| **Sync now** | Full sync with saved strategy |
+| **Test connection** | Health + info + auth |
+| **Settings** | Options page |
+
+---
+
+## API used
+
+```http
+Authorization: Bearer <api-key>
+```
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness |
+| `GET` | `/info` | Status |
+| `GET` | `/api/bookmarks` | List / download strategy |
+| `POST` | `/api/bookmarks/sync` | Merge / upload |
+
+See [root README — API](../README.md#api-multi-user).
+
+---
 
 ## Permissions
 
 | Permission | Why |
 |---|---|
-| `bookmarks` | Read/write the browser bookmark tree |
-| `storage` | Settings, ID map, last sync meta |
-| `alarms` | Periodic auto-sync |
-| `notifications` | Optional error toast on background sync failure |
-| Optional host access | `fetch` to your self-hosted API origin only |
+| `bookmarks` | Read/write bookmark tree |
+| `storage` | Settings, ID map, meta |
+| `alarms` | Time-based sync |
+| `notifications` | Background error toasts |
+| Optional host access | Your API origin only |
 
-## Project layout
+---
 
-```text
-bookmarks-extension/
-├── manifest.json
-├── background.js          # service worker (alarms + messages)
-├── lib/
-│   ├── api.js             # REST client + host permission
-│   ├── storage.js         # chrome.storage helpers
-│   ├── bookmarks.js       # tree collect / apply
-│   └── sync.js            # end-to-end sync
-├── popup/                 # toolbar UI
-├── options/               # settings page
-├── icons/
-└── README.md
-```
+## Troubleshooting
 
-## Limits & next steps
+| Problem | Fix |
+|---|---|
+| **`service_worker is currently disabled`** | Load **`firefox/`**, not `chrome/` |
+| Host / network error | Re-save Options and allow the API origin |
+| **`permissions.request may only be called from a user input handler`** (Firefox) | Use **Save** or **Test connection** (a real click). Reload the `firefox/` add-on after updating. |
+| **`NetworkError when attempting to fetch resource`** (Firefox only; Brave works) | Usually host access. **Remove and re-load** `firefox/` (manifest now includes `host_permissions`). Prefer `http://127.0.0.1:PORT`. Turn off **HTTPS-Only Mode** for that URL, or add an exception. Confirm API port (e.g. 31039), not admin. |
+| `401` | Fresh API key; user must be active |
+| Wrong port | Use **API** port (`SERVER_PORT`), not admin |
+| Firefox gone after restart | Temporary add-on — load `firefox/` again |
+| Firefox missing latest code | Run `npm run ext:sync`, then reload add-on |
+| Unexpected overwrites | Check strategy (Merge vs Download vs Upload) |
 
-- No end-to-end encryption (same model as the server).
-- First sync on a second browser will create bookmarks under the configured root for any IDs that browser has not seen yet.
-- Folder renames/moves are path-based, not Chrome folder-id based.
-- Future ideas: per-folder filters, conflict UI, Firefox build, stricter URL schemes.
+### Logs
+
+- **Chromium:** extension details → Service worker → Inspect  
+- **Firefox:** `about:debugging` → Inspect  
+
+---
 
 ## Development
 
-No build step — edit files and click **Reload** on `chrome://extensions`.
+1. Edit under **`chrome/`**.  
+2. `npm run ext:sync` to refresh **`firefox/`**.  
+3. Reload the extension in the browser.  
 
-Service worker logs: extension details → **Service worker** / Inspect views.
+No bundler required.

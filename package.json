@@ -1,11 +1,17 @@
 {
   "name": "bookmarks-sync",
-  "version": "0.2.0",
+  "version": "0.9.1",
   "description": "Self-hosted multi-user bookmark sync server (SQLite + Node.js)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "ext:sync": "node bookmarks-extension/scripts/sync-firefox.mjs",
+    "ext:firefox": "node bookmarks-extension/scripts/sync-firefox.mjs",
+    "ext:check": "node bookmarks-extension/scripts/check-extension-sync.mjs",
+    "ext:pack": "node bookmarks-extension/scripts/pack.mjs all",
+    "ext:pack-chrome": "node bookmarks-extension/scripts/pack.mjs chrome",
+    "ext:pack-firefox": "node bookmarks-extension/scripts/pack.mjs firefox"
   },
   "engines": {
     "node": ">=20"

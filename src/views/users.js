@@ -53,6 +53,13 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
           <td class="num">${bmCount}</td>
           <td class="muted small">${escapeHtml(formatDate(u.createdAt))}</td>
           <td class="actions">
+            <a class="btn btn-small" href="/users/${escapeHtml(u.id)}/export" title="Download ZIP of this user’s bookmarks">Export ZIP</a>
+            <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-clear-bookmarks"
+              data-username="${escapeHtml(u.username)}"
+              data-count="${bmCount}"
+              onsubmit="return confirm('Clear ALL ${bmCount} bookmark(s) for \\'${escapeHtml(u.username)}\\'?\\n\\nThis permanently deletes their bookmarks. The account and API key are kept.\\n\\nThis cannot be undone.') && confirm('Final confirmation: delete all bookmarks for \\'${escapeHtml(u.username)}\\'?');">
+              <button type="submit" class="btn btn-small btn-ghost" ${bmCount === 0 ? 'disabled' : ''}>Clear bookmarks</button>
+            </form>
             <form method="post" action="/users/${escapeHtml(u.id)}/regenerate-key" class="inline"
               onsubmit="return confirm('Regenerate API key for ${escapeHtml(u.username)}? The old key will stop working.');">
               <button type="submit" class="btn btn-small">New API key</button>
@@ -111,14 +118,20 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
     </section>
 
     <section class="card">
-      <h2>All users <span class="muted">(${users.length})</span></h2>
+      <div class="section-header">
+        <h2>All users <span class="muted">(${users.length})</span></h2>
+        <div class="section-actions">
+          <a class="btn btn-small btn-primary" href="/export/bookmarks">Export all users (ZIP)</a>
+          <a class="btn btn-small" href="/export/bookmarks?includeDeleted=1" title="Also includes soft-deleted rows">Export all + deleted</a>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>User</th>
               <th>API key</th>
-              <th>Bookmarks</th>
+              <th title="URL bookmarks only (folders excluded)">Bookmarks</th>
               <th>Created</th>
               <th>Actions</th>
             </tr>
@@ -202,6 +215,30 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
             } catch (err) {
               btn.title = 'Copy failed';
             }
+          });
+        });
+
+        document.querySelectorAll('form.form-clear-bookmarks').forEach(function (form) {
+          form.addEventListener('submit', function (e) {
+            var username = form.getAttribute('data-username') || 'this user';
+            var count = form.getAttribute('data-count') || '0';
+            var msg1 =
+              'Clear bookmarks for "' + username + '"?\\n\\n' +
+              'This will permanently delete ' + count + ' bookmark(s).\\n' +
+              'The user account and API key will be kept.\\n\\n' +
+              'This cannot be undone.';
+            if (!window.confirm(msg1)) {
+              e.preventDefault();
+              return false;
+            }
+            var msg2 =
+              'Final confirmation:\\n\\n' +
+              'Delete ALL bookmarks for "' + username + '"?';
+            if (!window.confirm(msg2)) {
+              e.preventDefault();
+              return false;
+            }
+            return true;
           });
         });
       })();

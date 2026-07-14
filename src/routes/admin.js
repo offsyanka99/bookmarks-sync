@@ -17,6 +17,9 @@ router.post('/users/:id/password', requireAdmin, adminController.setPassword);
 router.post('/users/:id/enable', requireAdmin, adminController.enableUser);
 router.post('/users/:id/disable', requireAdmin, adminController.disableUser);
 router.post('/users/:id/delete', requireAdmin, adminController.deleteUser);
+router.get('/users/:id/export', requireAdmin, adminController.exportUserBookmarks);
+router.post('/users/:id/clear-bookmarks', requireAdmin, adminController.clearUserBookmarks);
+router.get('/export/bookmarks', requireAdmin, adminController.exportAllBookmarks);
 router.post('/settings/log-level', requireAdmin, adminController.setLogLevel);
 
 module.exports = router;

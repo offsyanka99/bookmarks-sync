@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bookmarks Sync — Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="hero">
+        <img src="../icons/icon48.png" alt="" width="40" height="40" />
+        <div>
+          <h1>Bookmarks Sync</h1>
+          <p class="muted">Connect this browser to your self-hosted sync server.</p>
+        </div>
+      </header>
+
+      <form id="form" class="card">
+        <h2>Server</h2>
+
+        <label>
+          API base URL
+          <input
+            type="url"
+            id="apiBaseUrl"
+            name="apiBaseUrl"
+            placeholder="http://127.0.0.1:31059"
+            required
+            autocomplete="off"
+          />
+          <span class="hint">Use the <strong>API</strong> port (default 31059), not the admin UI port.</span>
+        </label>
+
+        <label>
+          API key
+          <input
+            type="password"
+            id="apiKey"
+            name="apiKey"
+            placeholder="bms_…"
+            required
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <span class="hint">From the admin portal → user row. Stored only in this browser’s extension storage.</span>
+        </label>
+
+        <div class="row-actions">
+          <button type="button" class="btn btn-ghost" id="btn-toggle-key">Show key</button>
+          <button type="button" class="btn btn-ghost" id="btn-test">Test connection</button>
+        </div>
+
+        <h2>Sync behaviour</h2>
+
+        <label class="checkbox block-check">
+          <input type="checkbox" id="syncOnChange" name="syncOnChange" />
+          <span>
+            <strong>Change-based synchronization</strong>
+            <span class="hint inline-hint">
+              When on, a sync runs shortly after you make changes locally (create, edit, move, or delete bookmarks).
+            </span>
+          </span>
+        </label>
+
+        <label class="checkbox block-check">
+          <input type="checkbox" id="syncOnStartup" name="syncOnStartup" />
+          <span>
+            <strong>Sync on startup</strong>
+            <span class="hint inline-hint">
+              If enabled, this profile syncs when the browser starts—useful if you do not want to wait for the next scheduled sync.
+            </span>
+          </span>
+        </label>
+
+        <label class="checkbox block-check">
+          <input type="checkbox" id="timeBasedSync" name="timeBasedSync" />
+          <span>
+            <strong>Time-based synchronization</strong>
+            <span class="hint inline-hint">
+              When on, a sync is scheduled automatically every few minutes.
+            </span>
+          </span>
+        </label>
+
+        <label id="interval-field" class="nested-field" hidden>
+          Synchronization interval (minutes)
+          <input
+            type="number"
+            id="syncIntervalMinutes"
+            name="syncIntervalMinutes"
+            min="1"
+            max="1440"
+            step="1"
+            value="15"
+          />
+          <span class="hint">Timespan between two sync runs. Default is 15 minutes.</span>
+        </label>
+
+        <h2>Synchronization strategy</h2>
+        <p class="section-intro muted">
+          How to reconcile bookmarks across devices. Usually keep changes from all sides when they are compatible;
+          sometimes you may want one side to fully overwrite the other.
+        </p>
+
+        <fieldset class="radio-group" id="strategy-group">
+          <legend class="sr-only">Synchronization strategy</legend>
+
+          <label class="radio-card">
+            <input type="radio" name="strategy" value="merge" checked />
+            <span>
+              <strong>Always merge local changes with changes from other browsers</strong>
+              <span class="badge-rec">recommended</span>
+              <span class="hint inline-hint">
+                Push local bookmarks and merge with the server using timestamps. Compatible changes from both sides are kept.
+              </span>
+            </span>
+          </label>
+
+          <label class="radio-card">
+            <input type="radio" name="strategy" value="download" />
+            <span>
+              <strong>Always undo local changes and download changes from other browsers</strong>
+              <span class="hint inline-hint">
+                Do not upload local edits. Replace this browser’s tree with what is on the server (including additions and deletions).
+              </span>
+            </span>
+          </label>
+
+          <label class="radio-card">
+            <input type="radio" name="strategy" value="upload" />
+            <span>
+              <strong>Always upload local changes and undo changes from other browsers</strong>
+              <span class="hint inline-hint">
+                Force this browser’s bookmarks onto the server and overwrite remote additions/edits/deletions.
+              </span>
+            </span>
+          </label>
+        </fieldset>
+
+        <h2>Advanced</h2>
+
+        <label>
+          New bookmarks from server go under
+          <select id="syncRoot" name="syncRoot">
+            <option value="other">Other Bookmarks</option>
+            <option value="toolbar">Bookmarks Bar</option>
+          </select>
+          <span class="hint">Only affects <em>new</em> items pulled from the server. Existing local bookmarks stay put.</span>
+        </label>
+
+        <label class="checkbox block-check">
+          <input type="checkbox" id="removeLocalMissing" name="removeLocalMissing" checked />
+          <span>
+            Remove local bookmarks that were deleted on the server
+            <span class="hint inline-hint">Used with the merge strategy. Download always removes extras; upload does not remove local-only items by default.</span>
+          </span>
+        </label>
+
+        <label class="checkbox block-check">
+          <input type="checkbox" id="destructiveFailsafe" name="destructiveFailsafe" checked />
+          <span>
+            <strong>Destructive sync failsafe</strong>
+            <span class="hint inline-hint">
+              Refuse syncs that would delete more than the threshold below of bookmarks
+              (on this device or on the server). Manual <em>Sync now</em> can still override after confirmation.
+            </span>
+          </span>
+        </label>
+
+        <label id="failsafe-pct-field" class="nested-field">
+          Failsafe threshold (%)
+          <input
+            type="number"
+            id="destructiveFailsafePercent"
+            name="destructiveFailsafePercent"
+            min="1"
+            max="100"
+            step="1"
+            value="50"
+          />
+          <span class="hint">Default 50. Example: refuse if a run would remove ≥50% of bookmarks.</span>
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save settings</button>
+        </div>
+
+        <p class="msg" id="msg" hidden></p>
+      </form>
+
+      <section class="card muted small">
+        <h2>How sync works</h2>
+        <ol>
+          <li>Reads this browser’s bookmark tree (URLs + folder paths).</li>
+          <li>Talks to <code>POST /api/bookmarks/sync</code> (or downloads the list), depending on strategy.</li>
+          <li>Applies the result back to the browser when needed.</li>
+        </ol>
+        <p>
+          Create a user in the server admin UI, copy that user’s API key, and paste it above.
+          Chrome/Brave: load unpacked <code>bookmarks-extension/chrome/</code>.
+          Firefox: load <code>bookmarks-extension/firefox/</code> from <code>about:debugging</code>
+          (after code changes run <code>npm run ext:sync</code>).
+        </p>
+      </section>
+
+      <footer class="page-footer muted" id="footer">
+        <span id="footer-browser">Browser</span> · self-hosted · v<span id="footer-version">—</span>
+      </footer>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

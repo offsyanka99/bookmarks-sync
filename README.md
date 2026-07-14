@@ -1,10 +1,10 @@
 # Bookmarks Sync
 
-**Version:** `0.2.0`
+**Version:** `0.9.1`
 
-Self-hosted multi-user bookmark sync API for browsers and scripts, plus a **Chrome/Brave** companion extension. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
+Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
-**Stack:** Node.js + Express + SQLite · **Auth:** admin session (UI) + per-user API keys (REST) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp.
+**Stack:** Node.js + Express + SQLite · **Auth:** admin session (UI) + per-user API keys (REST / extension) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp.
 
 **Multi-user model** (inspired by [Baikal](https://github.com/sabre-io/Baikal)-style admin accounts and [xBrowserSync](https://github.com/offsyanka99/xbrowsersync)-style sync):
 
@@ -15,12 +15,12 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a **Chro
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
 
-### What’s new in 0.2.0
+### What’s new in 0.9.1
 
-- **Chrome/Brave MV3 extension** (`bookmarks-extension/`): sync now, change-based / startup / time-based sync, merge · download · upload strategies
-- **Security hardening:** production fail-closed secrets, rate-limited login & API-key failures, session regenerate on login, tighter CORS & public `/info`, `.dockerignore`
-- **Admin UI:** one-click **copy** for user API keys
-- Logging, Docker Compose secret requirements, and docs for generating `SESSION_SECRET`
+- **Sync fix:** same-`updatedAt` merges now detect changes to **tags** and **favicon** (previously left as “unchanged”)
+- **Extension 0.9.x:** Chrome / Brave / Firefox layout (`chrome/` + `firefox/`), folders + order, destructive failsafe UI, shared icons, `npm run ext:sync` / `ext:check`
+- **Admin:** export ZIP, clear bookmarks, URL-only bookmark counts, footer version
+- Earlier **0.2.0** base: extension scaffold, production secret checks, rate limits, API-key copy
 
 ---
 
@@ -34,19 +34,25 @@ Two HTTP ports run from one process (`server.js`):
 | **Admin** | `ADMIN_PORT` (default `31060`) | Admin web portal only |
 
 ```
-┌─────────────────────┐     ┌──────────────────────────┐
-│  Admin UI           │     │  Bookmark Sync API       │
-│  ADMIN_PORT         │     │  SERVER_PORT             │
-│  /login  /          │     │  /health  /info          │
-│  session cookie     │     │  /api/bookmarks/*        │
-│  username+password  │     │  per-user API key        │
-└─────────┬───────────┘     └────────────┬─────────────┘
-          │                              │
-          └──────────┬───────────────────┘
-                     ▼
-              SQLite (data/bookmarks.db)
-              users + bookmarks (user_id)
+┌──────────────────┐   ┌──────────────────┐   ┌──────────────────────────┐
+│ Chrome / Brave   │   │ Firefox          │   │ Admin UI (ADMIN_PORT)    │
+│ MV3 extension    │   │ MV3 extension    │   │ session · users · keys   │
+└────────┬─────────┘   └────────┬─────────┘   └────────────┬─────────────┘
+         │  Bearer API key      │                          │
+         └──────────┬───────────┘                          │
+                    ▼                                      │
+         ┌──────────────────────────┐                      │
+         │ Bookmark Sync API        │◄─────────────────────┘
+         │ SERVER_PORT              │
+         │ /health  /info           │
+         │ /api/bookmarks/*         │
+         └────────────┬─────────────┘
+                      ▼
+               SQLite (data/bookmarks.db)
+               users + bookmarks (user_id)
 ```
+
+Extension package: [`bookmarks-extension/`](./bookmarks-extension/) — see [Browser extension](#browser-extension-chrome--brave--firefox) below.
 
 ---
 
@@ -59,28 +65,24 @@ bookmarks-sync/
 ├── .env / .env.example
 ├── Dockerfile
 ├── docker-compose.yml
-├── public/
-│   └── admin.css
+├── public/                   # Admin CSS, favicons, brand icons
+├── assets/                   # Source brand / extension icon masters
 ├── data/
 │   └── bookmarks.db          # Created on first start
 ├── src/
 │   ├── routes/
-│   │   ├── admin.js
-│   │   └── bookmarks.js
 │   ├── controllers/
-│   │   ├── adminController.js
-│   │   └── bookmarkController.js
 │   ├── models/
-│   │   ├── User.js
-│   │   └── Bookmark.js
-│   ├── middleware/
-│   │   └── auth.js           # Session (admin) + API key (API)
-│   ├── views/                # Server-rendered admin HTML
+│   ├── middleware/           # Session (admin) + API key (API)
+│   ├── views/
 │   └── utils/
-│       ├── db.js
-│       ├── crypto.js
-│       └── bootstrap.js
-├── bookmarks-extension/      # Chrome/Brave MV3 companion extension
+├── bookmarks-extension/
+│   ├── chrome/                    # Load unpacked in Chrome / Brave
+│   ├── firefox/                   # Load temporary add-on in Firefox
+│   ├── shared/icons/              # Icon source of truth
+│   ├── scripts/sync-firefox.mjs   # npm run ext:sync (chrome → firefox)
+│   ├── scripts/check-extension-sync.mjs  # npm run ext:check
+│   └── README.md
 └── README.md
 ```
 
@@ -96,12 +98,12 @@ bookmarks-sync/
 - SQLite (WAL mode), soft deletes, import/export, full sync
 - Bootstrap admin from `.env`; optional password reset via env flag
 - **Production safeguards:** strong `SESSION_SECRET` / `ADMIN_PASSWORD` required; login & API-key rate limits
-- **Browser extension (Chrome / Brave)** — see [`bookmarks-extension/`](./bookmarks-extension/)
+- **Browser extension (Chrome / Brave / Firefox)** — see [`bookmarks-extension/`](./bookmarks-extension/)
 
 **Not yet**
 
 - End-user web UI for managing bookmarks in the browser
-- Firefox extension pack
+- Signed Firefox AMO release (temporary / self-install works today)
 - CSRF tokens on admin forms / hashed API keys (planned hardening)
 
 ---
@@ -157,8 +159,12 @@ The admin **API key** is printed once in the server log and is always visible in
 
 1. Log in to the admin portal (admin only in v1).
 2. Create a user (username, password, optional display name).
-3. Copy that user’s **API key**.
-4. Use the key against the **API port** (not the admin port).
+3. **Copy** that user’s **API key** (copy icon next to the key).
+4. Use the key with:
+   - the **browser extension** (Options → API key), or  
+   - any HTTP client against the **API port** (not the admin port).
+
+See [Browser extension](#browser-extension-chrome--brave--firefox) for install steps.
 
 ---
 
@@ -452,7 +458,8 @@ Per bookmark (same user):
 | No server row | **Create** |
 | Client `updatedAt` **newer** than server | **Update** server |
 | Client `updatedAt` **older** than server | **Skip**; listed in `conflicts` (`server_newer`) |
-| Same `updatedAt` | **Unchanged** |
+| Same `updatedAt`, fields unchanged | **Unchanged** |
+| Same `updatedAt`, but title/url/folder/position/notes/tags/favicon differ | **Update** (reorder / content fix; server bumps `updatedAt`) |
 | `force: true` | Always apply client values |
 
 `replace: true` soft-deletes server bookmarks **not** in the payload:
@@ -575,23 +582,140 @@ docker compose up -d --build
 
 ---
 
-## Browser extension (Chrome / Brave)
+## Browser extension (Chrome / Brave / Firefox)
 
-Companion **Manifest V3** extension lives in [`bookmarks-extension/`](./bookmarks-extension/).
+Companion **Manifest V3** extension: [`bookmarks-extension/`](./bookmarks-extension/).  
+Full reference (options, strategies, troubleshooting): **[bookmarks-extension/README.md](./bookmarks-extension/README.md)**.
+
+### Overview
 
 | | |
 |---|---|
-| Browsers | Chrome, Brave (Chromium MV3) |
-| Auth | Per-user API key (`Authorization: Bearer …`) |
-| Install | Load unpacked from `bookmarks-extension/` |
+| **Browsers** | Chrome 116+, Brave, Firefox 121+ |
+| **Auth** | Per-user API key (`Authorization: Bearer bms_…`) |
+| **Talks to** | API port (`SERVER_PORT`), **not** the admin UI port |
+| **Chromium install** | Load **unpacked** → `bookmarks-extension/chrome/` |
+| **Firefox install** | Load temporary add-on → `bookmarks-extension/firefox/` |
 
-**Quick path:**
+The extension does **not** use the admin password. Create a normal user (or use an admin’s API key) in the admin portal, copy the key, and paste it into extension Options.
 
-1. Run the server; create a user; copy the API key from the admin UI.
-2. `chrome://extensions` or `brave://extensions` → Developer mode → **Load unpacked** → select `bookmarks-extension/`.
-3. Options: API base URL = `http://127.0.0.1:31059` (API port), paste API key → Save → **Sync now** in the popup.
+### Server checklist before installing the extension
 
-Full details: [bookmarks-extension/README.md](./bookmarks-extension/README.md).
+1. Server is running (`npm start` or Docker).
+2. Admin portal is reachable; you have created a **user** (or use admin).
+3. Copy that user’s **API key** (copy button in the users table).
+4. Note the **API** base URL only, for example:
+
+   | Setup | Example API base URL |
+   |---|---|
+   | Local default ports | `http://127.0.0.1:31059` |
+   | Custom `.env` `SERVER_PORT` | `http://127.0.0.1:31039` |
+   | Behind reverse proxy | `https://bookmarks.example.com` |
+
+   Do **not** use `ADMIN_PORT` (e.g. 31060) in the extension.
+
+5. Optional: if a web page will call the API cross-origin, set `CORS_ORIGINS` (extension `fetch` from a background script usually does **not** need CORS).
+
+### Install — Chrome / Brave
+
+1. Open `chrome://extensions` or `brave://extensions`.
+2. Enable **Developer mode**.
+3. **Load unpacked** → select:
+
+   ```text
+   bookmarks-sync/bookmarks-extension/chrome
+   ```
+
+4. Open the extension **Options** (or toolbar popup → **Settings**).
+5. Set **API base URL** and **API key** → **Save** (allow host access when the browser prompts).
+6. **Test connection**, then **Sync now** from the popup.
+
+### Install — Firefox
+
+**Permanent (recommended — keeps settings after close):**
+
+```bash
+npm run ext:pack-firefox
+# creates dist/bookmarks-sync-firefox.xpi
+```
+
+Install the `.xpi` as described in  
+[bookmarks-extension/FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md)  
+(Developer Edition unsigned, or Mozilla-signed for release Firefox).
+
+**Temporary (dev only — removed when Firefox quits):**
+
+1. `npm run ext:sync`
+2. `about:debugging` → Load Temporary Add-on → `bookmarks-extension/firefox/manifest.json`
+
+Do **not** load `bookmarks-extension/chrome/` into Firefox.
+
+### What the extension can do
+
+| Feature | Description |
+|---|---|
+| **Sync now** | Manual full sync from the toolbar popup |
+| **Test connection** | Hits `/health`, `/info`, and authenticated list |
+| **Change-based sync** | Debounced sync after local bookmark create/edit/move/delete |
+| **Sync on startup** | Sync a few seconds after the browser profile starts |
+| **Time-based sync** | Periodic alarm (default interval **15** minutes) |
+| **Merge** (default) | Keep compatible changes from this browser and the server |
+| **Download** | Server wins — overwrite this browser from the server |
+| **Upload** | This browser wins — force local tree onto the server |
+
+### Extension settings (Options page)
+
+**Server**
+
+- API base URL  
+- API key  
+
+**Sync behaviour**
+
+- Change-based synchronization (on/off)  
+- Sync on startup (on/off)  
+- Time-based synchronization (on/off) + interval in minutes  
+
+**Synchronization strategy** (one of)
+
+- Always merge local changes with changes from other browsers *(recommended)*  
+- Always undo local changes and download from other browsers  
+- Always upload local changes and undo changes from other browsers  
+
+**Advanced**
+
+- Where *new* server bookmarks are created (Other Bookmarks / Bookmarks Bar)  
+- Remove local bookmarks deleted on the server  
+
+### API endpoints the extension uses
+
+| Method | Path | When |
+|---|---|---|
+| `GET` | `/health` | Connection test |
+| `GET` | `/info` | Connection test |
+| `GET` | `/api/bookmarks` | Auth test; **download** strategy |
+| `POST` | `/api/bookmarks/sync` | **merge** and **upload** strategies |
+
+Auth header:
+
+```http
+Authorization: Bearer bms_<your-user-api-key>
+```
+
+### Troubleshooting (extension)
+
+| Symptom | What to check |
+|---|---|
+| Network / host permission error | Re-save Options and **Allow** access to the API origin |
+| `401 Unauthorized` | Wrong/expired API key; regenerate in admin UI and paste again |
+| Sync hits wrong service | URL must be **API** port, not admin port |
+| `service_worker is currently disabled` | Load `bookmarks-extension/firefox/`, not `chrome/` |
+| Firefox missing latest UI/code | Run `npm run ext:sync`, then reload the temporary add-on |
+| Firefox extension gone after close | Temporary add-on only lasts one session — use `npm run ext:pack-firefox` and [FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md) |
+| Changes not pushing | Strategy set to **Download**? Switch to **Merge** or **Upload** |
+| Server rejects large payload | Raise `MAX_SYNC_SIZE_BYTES` or split/clean bookmarks |
+
+More detail: [bookmarks-extension/README.md](./bookmarks-extension/README.md).
 
 ---
 

@@ -131,6 +131,8 @@ if (apiCors) {
   apiApp.use(apiCors);
 }
 apiApp.use(morgan(morganFormat, { stream: morganStream }));
+// Brand icons / favicon (same public assets as admin UI)
+apiApp.use(express.static(publicDir, { index: false }));
 apiApp.use(express.json({ limit: process.env.MAX_SYNC_SIZE_BYTES || '1mb' }));
 
 apiApp.get('/health', (_req, res) => {
@@ -165,10 +167,17 @@ apiApp.get('/info', (_req, res) => {
 apiApp.get('/', (_req, res) => {
   res.type('html').send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/><title>Bookmarks Sync API</title>
+<link rel="icon" href="/favicon.ico" sizes="any"/>
+<link rel="icon" type="image/png" href="/favicon.png"/>
 <style>body{font-family:system-ui,sans-serif;max-width:36rem;margin:2rem auto;padding:0 1rem;line-height:1.5}
-code{background:#f4f4f4;padding:.1em .35em;border-radius:4px}</style></head>
+code{background:#f4f4f4;padding:.1em .35em;border-radius:4px}
+.hero{display:flex;align-items:center;gap:.75rem}
+.hero img{width:48px;height:48px;border-radius:12px}</style></head>
 <body>
-  <h1>Bookmarks Sync API</h1>
+  <div class="hero">
+    <img src="/icons/icon48.png" width="48" height="48" alt="Bookmarks Sync"/>
+    <h1 style="margin:0">Bookmarks Sync API</h1>
+  </div>
   <p>This port serves the REST API only.</p>
   <ul>
     <li><code>GET /health</code></li>

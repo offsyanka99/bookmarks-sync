@@ -20,13 +20,20 @@
   box-sizing: border-box;
 }
 
+html {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: radial-gradient(1200px 600px at 10% -10%, #1e3a5f 0%, transparent 50%),
     var(--bg);
   color: var(--text);
   min-height: 100vh;
+  min-height: 100dvh;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
 }
 
 a {
@@ -52,6 +59,9 @@ a:hover {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.01em;
@@ -59,6 +69,14 @@ a:hover {
 .brand:hover {
   text-decoration: none;
   color: #fff;
+}
+.brand-logo {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .topnav-right {
@@ -68,8 +86,94 @@ a:hover {
 }
 
 .container {
-  width: min(1500px, 100% - 2rem);
+  /* Admin layout max width */
+  width: min(1700px, 100% - 2rem);
   margin: 1.5rem auto 3rem;
+}
+
+main.container {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.site-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  background: rgba(15, 20, 25, 0.75);
+  padding: 0.65rem 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Login / logged-out: keep form + footer in one viewport (no scroll on normal screens) */
+body.layout-auth {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.layout-auth main.container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+body.layout-auth .site-footer {
+  padding: 0.55rem 0;
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem 0.65rem;
+  margin: 0 auto;
+}
+
+.site-footer a {
+  color: #93c5fd;
+}
+
+.site-footer a:hover {
+  color: #bfdbfe;
+}
+
+.footer-sep {
+  opacity: 0.5;
+}
+
+.section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+a.btn {
+  text-decoration: none;
+}
+
+a.btn:hover {
+  text-decoration: none;
 }
 
 .page-header {
@@ -105,13 +209,32 @@ h2 {
 }
 
 .auth-wrap {
-  min-height: calc(100vh - 5rem);
+  width: 100%;
   display: grid;
   place-items: center;
+  /* Do not use 100vh here — that pushes the footer off-screen */
+  padding: 0.25rem 0;
+}
+
+body.layout-auth .auth-wrap {
+  flex: 0 1 auto;
 }
 
 .auth-card {
   width: min(420px, 100%);
+}
+
+body.layout-auth .auth-card {
+  margin: 0;
+}
+
+body.layout-auth .auth-card h1 {
+  margin-top: 0;
+  font-size: 1.45rem;
+}
+
+body.layout-auth .flash {
+  margin-bottom: 0.75rem;
 }
 
 .stack {

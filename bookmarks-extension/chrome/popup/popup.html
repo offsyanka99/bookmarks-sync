@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bookmarks Sync</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">
+        <img src="../icons/icon32.png" alt="" width="20" height="20" />
+        <strong>Bookmarks Sync</strong>
+      </div>
+      <a href="../options/options.html" target="_blank" class="link" id="open-settings">Settings</a>
+    </header>
+
+    <section class="status card" id="status-card">
+      <div class="row">
+        <span class="label">Server</span>
+        <span class="value mono" id="server-url">—</span>
+      </div>
+      <div class="row">
+        <span class="label">API key</span>
+        <span class="value" id="api-key-state">—</span>
+      </div>
+      <div class="row">
+        <span class="label">Last sync</span>
+        <span class="value" id="last-sync">Never</span>
+      </div>
+      <div class="row">
+        <span class="label">Status</span>
+        <span class="value" id="sync-status">—</span>
+      </div>
+    </section>
+
+    <section class="actions" id="main-actions">
+      <button type="button" class="btn btn-primary" id="btn-sync">Sync now</button>
+      <button type="button" class="btn btn-ghost" id="btn-test">Test connection</button>
+    </section>
+
+    <!-- In-popup failsafe panel (no window.confirm — Firefox truncates it) -->
+    <section class="failsafe card" id="failsafe-panel" hidden>
+      <h2 class="failsafe-title">Sync refused</h2>
+      <p class="failsafe-lead">
+        This run would delete a large share of bookmarks. Details below.
+      </p>
+      <pre class="failsafe-detail" id="failsafe-detail"></pre>
+      <p class="failsafe-hint muted">
+        Override for this run only, or cancel and use Download / Upload deliberately.
+      </p>
+      <div class="failsafe-actions">
+        <button type="button" class="btn btn-ghost" id="btn-failsafe-cancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="btn-failsafe-override">
+          Override &amp; sync
+        </button>
+      </div>
+    </section>
+
+    <pre class="log" id="log" hidden></pre>
+
+    <footer class="footer muted" id="footer">
+      <span id="footer-browser">Browser</span> · self-hosted · v<span id="footer-version">—</span>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

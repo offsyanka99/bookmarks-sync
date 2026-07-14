@@ -97,6 +97,14 @@ const bookmarkController = {
         includeDeleted,
         folder: folder !== null ? folder : null,
       });
+      logger.info('bookmarks list', {
+        userId: userId(req),
+        username: req.user?.username,
+        client: req.get('x-bookmarks-sync-client') || 'unknown',
+        clientBrowser: req.get('x-bookmarks-sync-browser') || null,
+        count: bookmarks.length,
+        includeDeleted,
+      });
       res.json({ count: bookmarks.length, bookmarks });
     } catch (err) {
       logger.error('list bookmarks failed', { err: err.message, stack: err.stack });
@@ -218,6 +226,45 @@ const bookmarkController = {
       const replace = Boolean(req.body.replace);
       const force = Boolean(req.body.force);
       const lastSyncAt = req.body.lastSyncAt || null;
+      const confirmDestructive = Boolean(req.body.confirmDestructive);
+
+      // Failsafe: refuse replace that would soft-delete more than half of the library
+      // unless the client explicitly confirms (manual override).
+      const failsafePct = Number(process.env.SYNC_DESTRUCTIVE_PERCENT);
+      const threshold = Number.isFinite(failsafePct) && failsafePct > 0 ? failsafePct : 50;
+      if (replace && list.length > 0 && !confirmDestructive && !force) {
+        const activeCount = Bookmark.count(userId(req), { includeDeleted: false });
+        const clientIds = list.map((b) => b?.id).filter(Boolean);
+        const wouldDelete = Bookmark.countActiveNotInIds(userId(req), clientIds);
+        const percent = activeCount > 0 ? (wouldDelete / activeCount) * 100 : 0;
+        // Only trip when the library is large enough to matter
+        if (activeCount >= 10 && percent >= threshold) {
+          const pct = Math.round(percent);
+          const message =
+            `The current sync run would delete ${pct}% of your bookmarks on the server ` +
+            `(${wouldDelete} of ${activeCount}). Refusing to execute. ` +
+            `Disable this failsafe in the extension settings or confirm a manual sync if you want to proceed. ` +
+            `If you didn't cause this, use Download to replace this device with the server state.`;
+          logger.warn('bookmarks sync refused (destructive failsafe)', {
+            userId: userId(req),
+            username: req.user?.username,
+            client: req.get('x-bookmarks-sync-client') || 'unknown',
+            wouldDelete,
+            activeCount,
+            percent: pct,
+            threshold,
+          });
+          return res.status(409).json({
+            error: 'destructive_refused',
+            message,
+            wouldDelete,
+            activeCount,
+            percent: pct,
+            threshold,
+            side: 'server',
+          });
+        }
+      }
 
       const result = Bookmark.syncFromClient(userId(req), list, {
         replace,
@@ -229,12 +276,18 @@ const bookmarkController = {
 
       logger.info('bookmarks sync', {
         userId: userId(req),
+        username: req.user?.username,
+        client: req.get('x-bookmarks-sync-client') || 'unknown',
+        clientBrowser: req.get('x-bookmarks-sync-browser') || null,
+        clientVersion: req.get('x-bookmarks-sync-version') || null,
         created: result.created,
         updated: result.updated,
         skipped: result.skipped,
         deleted: result.deleted,
         conflicts: result.conflicts.length,
         replace,
+        force,
+        bookmarkCount: list.length,
       });
 
       res.json({
