@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bookmarks Sync",
-  "version": "0.9.2",
+  "version": "1.0.0",
   "description": "Sync browser bookmarks with your self-hosted bookmarks-sync server.",
   "browser_specific_settings": {
     "gecko": {

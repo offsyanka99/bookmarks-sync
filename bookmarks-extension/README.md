@@ -1,6 +1,6 @@
 # Bookmarks Sync — Browser Extensions
 
-**Version:** `0.9.2` (matches server package version)
+**Version:** `1.0.0` (matches server package version)
 
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 
@@ -79,15 +79,14 @@ Packaging / re-publish for the store: **[CHROME-STORE.md](./CHROME-STORE.md)**
 
 ### Firefox — permanent (keeps settings after close)
 
-Temporary add-ons are **deleted when Firefox quits**. For a real install on **release Firefox**, use the **Mozilla-signed** package in the repo:
+Temporary add-ons are **deleted when Firefox quits**. For a real install on **release Firefox**, use a **Mozilla-signed** `.xpi` (same extension id):
 
 ```text
-dist/bookmarks-sync-firefox-0.9.2.xpi
+dist/bookmarks-sync-firefox-1.0.0.xpi
 ```
 
-`about:addons` → gear → **Install Add-on From File…** → choose that file.
-
-Full steps, rebuilds, and re-signing: **[FIREFOX-INSTALL.md](./FIREFOX-INSTALL.md)**
+`about:addons` → gear → **Install Add-on From File…** → choose that file.  
+Repo rebuilds are often **unsigned** until re-signed for AMO / self-distribution — see **[FIREFOX-INSTALL.md](./FIREFOX-INSTALL.md)**.
 
 ### Firefox — temporary (dev only)
 
@@ -135,7 +134,7 @@ bookmarks-extension/
 | Install Chrome (users) | [Chrome Web Store](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal) |
 | Pack Chrome store ZIP | `npm run ext:pack-chrome` → `dist/bookmarks-sync-chrome-*.zip` — see [CHROME-STORE.md](./CHROME-STORE.md) |
 | Pack unsigned Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
-| Install Firefox (release) | **`dist/bookmarks-sync-firefox-0.9.2.xpi`** (Mozilla-signed) — see FIREFOX-INSTALL.md |
+| Install Firefox (release) | **`dist/bookmarks-sync-firefox-1.0.0.xpi`** (Mozilla-sign for release Firefox) — see FIREFOX-INSTALL.md |
 | Load Chromium (dev) | Unpacked → **`chrome/`** |
 | Load Firefox (dev) | Temporary add-on → **`firefox/`** |
 

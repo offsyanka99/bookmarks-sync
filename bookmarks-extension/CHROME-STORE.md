@@ -27,7 +27,7 @@ npm run ext:pack-chrome
 Creates:
 
 ```text
-dist/bookmarks-sync-chrome-0.9.2.zip   # versioned (upload this)
+dist/bookmarks-sync-chrome-1.0.0.zip   # versioned (upload this)
 dist/bookmarks-sync-chrome.zip         # same contents, stable name
 ```
 
@@ -52,7 +52,7 @@ The ZIP root **is** the extension root (`manifest.json` at the top of the archiv
 
 1. Pay the one-time Chrome Web Store developer registration fee (if not already done).
 2. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **New item**.
-3. Upload `dist/bookmarks-sync-chrome-0.9.2.zip`.
+3. Upload `dist/bookmarks-sync-chrome-1.0.0.zip` (or the current versioned ZIP).
 4. Fill the store listing (see copy below).
 5. **Privacy** practices (required):
    - Declare that the extension handles **user data** (bookmarks, and network data to the user’s server).

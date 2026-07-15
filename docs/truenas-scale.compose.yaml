@@ -31,7 +31,7 @@ services:
     build:
       context: https://github.com/offsyanka99/bookmarks-sync.git#main
     # B) Or use a pre-built image you pushed (comment out build: above):
-    # image: ghcr.io/YOURUSER/bookmarks-sync:0.9.2
+    # image: ghcr.io/YOURUSER/bookmarks-sync:1.0.0
 
     container_name: bookmarks-sync
     restart: unless-stopped

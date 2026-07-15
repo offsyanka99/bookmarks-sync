@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `0.9.2`
+**Version:** `1.0.0`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -15,13 +15,13 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
 
-### What’s new in 0.9.2
+### 1.0.0 — first stable release
 
-- **Chrome Web Store:** extension published — [Bookmarks Sync](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal)
-- **Firefox AMO:** `data_collection_permissions` (`bookmarksInfo`), `strict_min_version` **128.0**, no `innerHTML` in popup status pill, Chrome-only reorder hook without static Firefox API name
-- **0.9.1:** same-`updatedAt` sync also applies **tags** / **favicon** changes
-- **0.9.x extension:** Chrome / Brave / Firefox layout, folders + order, failsafe UI, shared icons, `ext:sync` / `ext:check`
-- **Admin:** export ZIP, clear bookmarks, URL-only counts
+- **Server:** multi-user SQLite API + admin portal, Docker / TrueNAS SCALE deploy
+- **Chrome extension:** live on the [Chrome Web Store](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal)
+- **Firefox extension:** Manifest V3 companion (signed XPI / temporary load for dev)
+- **Sync:** merge / download / upload strategies, folders + order, failsafe for large deletes
+- **Ops:** Winston logs (stdout for Dozzle), production secret checks, plain-HTTP LAN admin UI (TrueNAS-friendly CSP)
 
 ---
 
@@ -87,7 +87,7 @@ bookmarks-sync/
 │   ├── scripts/check-extension-sync.mjs  # npm run ext:check
 │   └── README.md
 ├── dist/
-│   └── bookmarks-sync-firefox-*.xpi  # Mozilla-signed Firefox package (tracked)
+│   └── bookmarks-sync-firefox-*.xpi  # Firefox package (sign for release Firefox)
 ├── docs/
 │   ├── PRIVACY.md / privacy.html     # Extension privacy policy
 │   └── truenas-scale.compose.yaml    # TrueNAS SCALE custom app example
@@ -680,17 +680,16 @@ Works in Chrome and other Chromium browsers that support the Chrome Web Store (i
 
 ### Install — Firefox
 
-**Permanent (recommended — works on release Firefox):**
-
-A **Mozilla-signed** XPI is in the repo:
+**Permanent (recommended — works on release Firefox when signed):**
 
 ```text
-dist/bookmarks-sync-firefox-0.9.2.xpi
+dist/bookmarks-sync-firefox-1.0.0.xpi
 ```
 
 1. `about:addons` → gear → **Install Add-on From File…**
 2. Choose that `.xpi` → confirm → **Options** → API URL + key → **Save**.
 
+Release Firefox requires a **Mozilla-signed** XPI (repo rebuilds may be unsigned until re-signed).  
 Full steps, updates, and self-sign workflow:  
 [bookmarks-extension/FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md)
 
