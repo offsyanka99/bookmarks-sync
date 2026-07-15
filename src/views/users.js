@@ -67,7 +67,8 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
           </td>
           <td class="num">${bmCount}</td>
           <td class="muted small">${formatDate(u.createdAt)}</td>
-          <td class="actions">
+          <td class="actions-cell">
+            <div class="actions">
             <a class="btn btn-small" href="/users/${escapeHtml(u.id)}/export" title="Download ZIP of this user’s bookmarks">Export ZIP</a>
             <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-clear-bookmarks"
               data-username="${escapeHtml(u.username)}"
@@ -79,7 +80,7 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
               onsubmit="return confirm('Regenerate API key for ${escapeHtml(u.username)}? The old key will stop working.');">
               <button type="submit" class="btn btn-small">New API key</button>
             </form>
-            <form method="post" action="/users/${escapeHtml(u.id)}/password" class="inline stack-tight password-form">
+            <form method="post" action="/users/${escapeHtml(u.id)}/password" class="password-form">
               <input type="password" name="password" placeholder="New password" required />
               <button type="submit" class="btn btn-small">Set password</button>
             </form>
@@ -94,6 +95,7 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
                     <button type="submit" class="btn btn-small btn-danger">Delete</button>
                   </form>`
             }
+            </div>
           </td>
         </tr>`;
     })

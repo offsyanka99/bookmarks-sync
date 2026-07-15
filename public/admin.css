@@ -452,15 +452,16 @@ th {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  max-width: 16.5rem;
+  max-width: 20.5rem;
 }
 
 .api-key {
   display: block;
   flex: 1 1 auto;
   min-width: 0;
-  width: 11rem;
-  max-width: 11rem;
+  /* ~1/4 longer than previous 11rem */
+  width: 13.75rem;
+  max-width: 13.75rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.78rem;
   line-height: 1.4;
@@ -525,12 +526,26 @@ th {
   display: block;
 }
 
+/* Keep td as table-cell so row borders stay aligned; flex only on inner wrapper */
+.actions-cell {
+  vertical-align: top;
+  min-width: 12rem;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  align-items: flex-start;
-  min-width: 12rem;
+  align-items: center;
+}
+
+.password-form {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
 }
 
 .password-form input {
