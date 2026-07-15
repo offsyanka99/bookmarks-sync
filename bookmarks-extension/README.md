@@ -50,7 +50,19 @@ npm run ext:sync
 
 ## Install
 
-### Chrome / Brave
+### Chrome / Brave — Chrome Web Store (recommended)
+
+Install from the published listing:
+
+**[Bookmarks Sync — Chrome Web Store](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal)**
+
+1. Click **Add to Chrome** (or equivalent in Brave / other Chromium browsers).  
+2. Options → API base URL + API key → **Save** → allow host access.  
+3. **Test connection** → **Sync now**.
+
+Store item ID: `ndiehbfpikbmhdgffcfohoeojlmfbpal` (keep this stable across updates).
+
+### Chrome / Brave — developer (unpacked)
 
 1. Open `chrome://extensions` or `brave://extensions`.  
 2. Enable **Developer mode**.  
@@ -62,6 +74,8 @@ npm run ext:sync
 
 4. Options → API base URL + API key → **Save** → allow host access.  
 5. **Test connection** → **Sync now**.
+
+Packaging / re-publish for the store: **[CHROME-STORE.md](./CHROME-STORE.md)**
 
 ### Firefox — permanent (keeps settings after close)
 
@@ -118,10 +132,11 @@ bookmarks-extension/
 | Edit code | Change files under **`chrome/`** |
 | Update Firefox copy | `npm run ext:sync` |
 | Guard chrome ↔ firefox | `npm run ext:check` |
+| Install Chrome (users) | [Chrome Web Store](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal) |
 | Pack Chrome store ZIP | `npm run ext:pack-chrome` → `dist/bookmarks-sync-chrome-*.zip` — see [CHROME-STORE.md](./CHROME-STORE.md) |
 | Pack unsigned Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
 | Install Firefox (release) | **`dist/bookmarks-sync-firefox-0.9.2.xpi`** (Mozilla-signed) — see FIREFOX-INSTALL.md |
-| Load Chromium | Unpacked → **`chrome/`** |
+| Load Chromium (dev) | Unpacked → **`chrome/`** |
 | Load Firefox (dev) | Temporary add-on → **`firefox/`** |
 
 ---

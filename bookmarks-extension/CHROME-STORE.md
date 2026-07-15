@@ -1,7 +1,18 @@
 # Chrome Web Store — package & publish
 
+**Published listing (users install from here):**
+
+**[https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal)**
+
+| | |
+|---|---|
+| **Store item ID** | `ndiehbfpikbmhdgffcfohoeojlmfbpal` |
+| **Status** | Live (Google-signed) |
+
 Chrome does **not** use a local “sign this XPI” flow like Firefox.  
 You upload a **ZIP** to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole); Google hosts and signs the published item.
+
+This document is for **maintainers** updating the live listing. End users should install from the store URL above (see [README.md](./README.md)).
 
 ---
 
@@ -37,6 +48,8 @@ The ZIP root **is** the extension root (`manifest.json` at the top of the archiv
 
 ## 2. Developer Dashboard steps
 
+**First publish** (already done for this project — kept for reference):
+
 1. Pay the one-time Chrome Web Store developer registration fee (if not already done).
 2. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **New item**.
 3. Upload `dist/bookmarks-sync-chrome-0.9.2.zip`.
@@ -55,6 +68,8 @@ The ZIP root **is** the extension root (`manifest.json` at the top of the archiv
 | `optional_host_permissions` `http://*/*` `https://*/*` | User enters **their own** API base URL (any host/port). Access is **optional** and requested only for that origin when they Save / Test connection. No fixed third-party analytics host. |
 
 7. Submit for review.
+
+**Updates** (normal path now): open the existing item `ndiehbfpikbmhdgffcfohoeojlmfbpal` → **Package** → upload new ZIP → submit.
 
 ---
 
@@ -224,9 +239,12 @@ Icons already in the package (`icons/icon128.png`, etc.) are used for the store 
 
 ## 6. After publish / updates
 
+Live listing:  
+https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal
+
 1. Bump `bookmarks-extension/chrome/manifest.json` → `version`.
 2. `npm run ext:pack-chrome`
-3. Dashboard → your item → **Package** → upload new ZIP → submit.
+3. Dashboard → item **`ndiehbfpikbmhdgffcfohoeojlmfbpal`** → **Package** → upload new ZIP → submit.
 
 Keep the same Chrome Web Store item ID so user settings survive updates.
 

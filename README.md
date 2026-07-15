@@ -17,6 +17,7 @@ There is **no shared global API key**. Each user has a unique key; all bookmark 
 
 ### What’s new in 0.9.2
 
+- **Chrome Web Store:** extension published — [Bookmarks Sync](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal)
 - **Firefox AMO:** `data_collection_permissions` (`bookmarksInfo`), `strict_min_version` **128.0**, no `innerHTML` in popup status pill, Chrome-only reorder hook without static Firefox API name
 - **0.9.1:** same-`updatedAt` sync also applies **tags** / **favicon** changes
 - **0.9.x extension:** Chrome / Brave / Firefox layout, folders + order, failsafe UI, shared icons, `ext:sync` / `ext:check`
@@ -77,8 +78,10 @@ bookmarks-sync/
 │   ├── views/
 │   └── utils/
 ├── bookmarks-extension/
-│   ├── chrome/                    # Load unpacked in Chrome / Brave
-│   ├── firefox/                   # Load temporary add-on in Firefox
+│   ├── chrome/                    # Chrome source (store + load unpacked)
+│   ├── firefox/                   # Firefox build (sync from chrome/)
+│   ├── CHROME-STORE.md            # Store listing + publish notes
+│   ├── FIREFOX-INSTALL.md         # Signed .xpi install
 │   ├── shared/icons/              # Icon source of truth
 │   ├── scripts/sync-firefox.mjs   # npm run ext:sync (chrome → firefox)
 │   ├── scripts/check-extension-sync.mjs  # npm run ext:check
@@ -624,8 +627,9 @@ Full reference (options, strategies, troubleshooting): **[bookmarks-extension/RE
 | **Browsers** | Chrome 116+, Brave, Firefox 128+ |
 | **Auth** | Per-user API key (`Authorization: Bearer bms_…`) |
 | **Talks to** | API port (`SERVER_PORT`), **not** the admin UI port |
-| **Chromium install** | Load **unpacked** → `bookmarks-extension/chrome/` |
-| **Firefox install** | Load temporary add-on → `bookmarks-extension/firefox/` |
+| **Chrome install** | [Chrome Web Store](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal) (recommended) |
+| **Brave / dev** | Load **unpacked** → `bookmarks-extension/chrome/` |
+| **Firefox install** | Signed XPI → `dist/bookmarks-sync-firefox-*.xpi` (or temporary add-on for dev) |
 
 The extension does **not** use the admin password. Create a normal user (or use an admin’s API key) in the admin portal, copy the key, and paste it into extension Options.
 
@@ -648,6 +652,17 @@ The extension does **not** use the admin password. Create a normal user (or use 
 
 ### Install — Chrome / Brave
 
+**Chrome Web Store (recommended):**
+
+[**Bookmarks Sync on the Chrome Web Store**](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal)
+
+1. Install from the store listing.
+2. Open the extension **Options** (or toolbar popup → **Settings**).
+3. Set **API base URL** and **API key** → **Save** (allow host access when the browser prompts).
+4. **Test connection**, then **Sync now** from the popup.
+
+Works in Chrome and other Chromium browsers that support the Chrome Web Store (including Brave via store install or “Allow extensions from other stores”).
+
 **Developer (unpacked):**
 
 1. Open `chrome://extensions` or `brave://extensions`.
@@ -658,18 +673,9 @@ The extension does **not** use the admin password. Create a normal user (or use 
    bookmarks-sync/bookmarks-extension/chrome
    ```
 
-4. Open the extension **Options** (or toolbar popup → **Settings**).
-5. Set **API base URL** and **API key** → **Save** (allow host access when the browser prompts).
-6. **Test connection**, then **Sync now** from the popup.
+4. Configure Options as above.
 
-**Chrome Web Store package** (upload ZIP to Google’s dashboard — Google signs the published item):
-
-```bash
-npm run ext:pack-chrome
-# → dist/bookmarks-sync-chrome-0.9.2.zip
-```
-
-Steps, listing copy, privacy policy, and permission justifications:  
+**Publishing updates** (maintainers): pack ZIP and dashboard steps —  
 [bookmarks-extension/CHROME-STORE.md](./bookmarks-extension/CHROME-STORE.md)
 
 ### Install — Firefox
