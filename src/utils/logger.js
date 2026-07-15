@@ -22,10 +22,27 @@ if (!LEVELS.includes(runtimeLevel)) {
   runtimeLevel = 'info';
 }
 
+/**
+ * Ensure log directory is writable. Returns false on permission/IO errors
+ * so callers can fall back to stdout-only (common on TrueNAS host mounts).
+ */
 function ensureLogDir() {
-  if (!LOG_TO_FILE) return;
-  if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+  if (!LOG_TO_FILE) return false;
+  try {
+    if (!fs.existsSync(LOG_DIR)) {
+      fs.mkdirSync(LOG_DIR, { recursive: true });
+    }
+    // Prove write access (dataset often owned by root while app runs as uid 1001)
+    fs.accessSync(LOG_DIR, fs.constants.W_OK);
+    return true;
+  } catch (err) {
+    // Defer console.warn until after process starts — use stderr so Docker shows it
+    process.stderr.write(
+      `[bookmarks-sync] Cannot write log dir "${LOG_DIR}" (${err.code || err.message}). ` +
+        `File logging disabled; using stdout. ` +
+        `On TrueNAS: chown -R 1001:1001 <host-data-path> (container user is uid 1001).\n`
+    );
+    return false;
   }
 }
 
@@ -71,9 +88,8 @@ function buildTransports() {
     );
   }
 
-  if (LOG_TO_FILE) {
-    ensureLogDir();
-
+  const fileOk = ensureLogDir();
+  if (LOG_TO_FILE && fileOk) {
     transports.push(
       new DailyRotateFile({
         dirname: LOG_DIR,
@@ -106,15 +122,18 @@ function buildTransports() {
     transports.push(new winston.transports.Console({ format: consoleFormat }));
   }
 
-  return transports;
+  return { transports, fileOk };
 }
+
+const { transports: initialTransports, fileOk: logDirWritable } = buildTransports();
+const useFileLogs = LOG_TO_FILE && logDirWritable;
 
 const logger = winston.createLogger({
   levels: winston.config.npm.levels,
   level: runtimeLevel,
   defaultMeta: { service: 'bookmarks-sync' },
-  transports: buildTransports(),
-  exceptionHandlers: LOG_TO_FILE
+  transports: initialTransports,
+  exceptionHandlers: useFileLogs
     ? [
         new DailyRotateFile({
           dirname: LOG_DIR,
@@ -130,7 +149,7 @@ const logger = winston.createLogger({
           : []),
       ]
     : [new winston.transports.Console({ format: stdoutJsonFormat })],
-  rejectionHandlers: LOG_TO_FILE
+  rejectionHandlers: useFileLogs
     ? [
         new DailyRotateFile({
           dirname: LOG_DIR,
@@ -183,7 +202,8 @@ function getLogConfig() {
     levels: LEVELS,
     logDir: LOG_DIR,
     logToStdout: LOG_TO_STDOUT,
-    logToFile: LOG_TO_FILE,
+    logToFile: useFileLogs,
+    logToFileRequested: LOG_TO_FILE,
     maxFiles: LOG_MAX_FILES,
     maxSize: LOG_MAX_SIZE,
   };

@@ -5,9 +5,14 @@
 #
 # Before deploy:
 #   1. Create a dataset, e.g. tank/apps/bookmarks-sync
-#   2. Set ADMIN_PASSWORD (strong, not "admin", min 8 chars in production)
-#   3. Set SESSION_SECRET:  openssl rand -hex 32
-#   4. Adjust host path under volumes: and host ports if needed
+#   2. Fix ownership for the container user (uid/gid 1001) — REQUIRED or you get:
+#        EACCES: permission denied, mkdir '/app/data/logs'
+#      On TrueNAS shell (System → Shell), run:
+#        mkdir -p /mnt/tank/apps/bookmarks-sync
+#        chown -R 1001:1001 /mnt/tank/apps/bookmarks-sync
+#   3. Set ADMIN_PASSWORD (strong, not "admin", min 8 chars in production)
+#   4. Set SESSION_SECRET:  openssl rand -hex 32
+#   5. Adjust host path under volumes: and host ports if needed
 #
 # After deploy:
 #   API  (extensions):  http://NAS-IP:31039
@@ -18,6 +23,8 @@
 
 services:
   bookmarks-sync:
+    # Container runs as uid 1001 (user "app"). Host data path must be writable by 1001.
+    user: "1001:1001"
     # --- Image source (pick one) -------------------------------------------
     # A) Build from GitHub (NAS needs outbound access to GitHub)
     build:
@@ -81,6 +88,7 @@ services:
 
     volumes:
       # CHANGE THIS to your TrueNAS dataset path
+      # Must be chown 1001:1001 (see header comment) — not root-only
       - /mnt/tank/apps/bookmarks-sync:/app/data
 
     healthcheck:
