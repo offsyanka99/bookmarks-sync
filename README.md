@@ -85,6 +85,9 @@ bookmarks-sync/
 │   └── README.md
 ├── dist/
 │   └── bookmarks-sync-firefox-*.xpi  # Mozilla-signed Firefox package (tracked)
+├── docs/
+│   ├── PRIVACY.md / privacy.html     # Extension privacy policy
+│   └── truenas-scale.compose.yaml    # TrueNAS SCALE custom app example
 └── README.md
 ```
 
