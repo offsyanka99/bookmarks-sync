@@ -34,19 +34,33 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
           </td>
           <td class="mono small">
             <div class="api-key-row">
-              <code class="api-key" title="Full API key">${escapeHtml(u.apiKey || '')}</code>
               ${
                 u.apiKey
-                  ? `<button type="button" class="btn btn-icon btn-copy-key" data-copy="${escapeHtml(u.apiKey)}" title="Copy API key" aria-label="Copy API key for ${escapeHtml(u.username)}">
-                      <svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                      <svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                    </button>`
-                  : ''
+                  ? `<code class="api-key is-masked" data-key="${escapeHtml(u.apiKey)}" title="API key hidden — click view to reveal" aria-label="API key for ${escapeHtml(u.username)} (hidden)">••••••••••••••••••••••••</code>
+              <div class="api-key-actions">
+                <button type="button" class="btn btn-icon btn-toggle-key" title="View API key" aria-label="View API key for ${escapeHtml(u.username)}" aria-pressed="false">
+                  <svg class="icon-eye" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  <svg class="icon-eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path>
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path>
+                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"></path>
+                  </svg>
+                </button>
+                <button type="button" class="btn btn-icon btn-copy-key" data-copy="${escapeHtml(u.apiKey)}" title="Copy API key" aria-label="Copy API key for ${escapeHtml(u.username)}">
+                  <svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+              </div>`
+                  : '<span class="muted">—</span>'
               }
             </div>
           </td>
@@ -182,6 +196,42 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
 
     <script>
       (function () {
+        var MASK = '••••••••••••••••••••••••';
+
+        document.querySelectorAll('.btn-toggle-key').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var row = btn.closest('.api-key-row');
+            if (!row) return;
+            var el = row.querySelector('.api-key');
+            if (!el) return;
+            var key = el.getAttribute('data-key') || '';
+            var visible = el.classList.contains('is-visible');
+            var eye = btn.querySelector('.icon-eye');
+            var eyeOff = btn.querySelector('.icon-eye-off');
+            if (visible) {
+              el.textContent = MASK;
+              el.classList.remove('is-visible');
+              el.classList.add('is-masked');
+              el.title = 'API key hidden — click view to reveal';
+              btn.title = 'View API key';
+              btn.setAttribute('aria-pressed', 'false');
+              btn.setAttribute('aria-label', btn.getAttribute('aria-label') || 'View API key');
+              if (eye) eye.hidden = false;
+              if (eyeOff) eyeOff.hidden = true;
+            } else {
+              el.textContent = key;
+              el.classList.add('is-visible');
+              el.classList.remove('is-masked');
+              el.title = 'Full API key';
+              btn.title = 'Hide API key';
+              btn.setAttribute('aria-pressed', 'true');
+              if (eye) eye.hidden = true;
+              if (eyeOff) eyeOff.hidden = false;
+              el.scrollLeft = 0;
+            }
+          });
+        });
+
         document.querySelectorAll('.btn-copy-key').forEach(function (btn) {
           btn.addEventListener('click', async function () {
             var value = btn.getAttribute('data-copy') || '';
