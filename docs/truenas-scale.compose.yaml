@@ -63,7 +63,7 @@ services:
       # REQUIRED — change these before first start
       # Docker Compose treats $ as variable expansion!
       # Prefer no $ in the password, or use TrueNAS UI secrets if available.
-      ADMIN_PASSWORD: "CHANGE_ME_STRONG_PASSWORD"
+      ADMIN_PASSWORD: "CHANGE_ME_NOW"
       SESSION_SECRET: "PASTE_OPENSSL_RAND_HEX_32_HERE"
 
       # false = normal (default). true = one-shot re-apply admin password from env, then set back to false
@@ -86,7 +86,8 @@ services:
       CORS_ORIGINS: ""
       # true when behind Traefik/Caddy/nginx so rate limits see real client IPs
       TRUST_PROXY: "false"
-      # true only when admin UI is served over HTTPS
+      # true only when admin UI is served over HTTPS.
+      # Leave false on plain HTTP LAN — true enables CSP upgrade-to-HTTPS and breaks CSS.
       COOKIE_SECURE: "false"
 
     volumes:

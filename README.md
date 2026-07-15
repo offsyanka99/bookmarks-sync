@@ -187,7 +187,7 @@ See [Browser extension](#browser-extension-chrome--brave--firefox) for install s
 | `ADMIN_PASSWORD` | `admin` (dev only) | Admin password on first bootstrap (or reset); **strong required in production** |
 | `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from `.env` |
 | `SESSION_SECRET` | dev placeholder (dev only) | Signs admin session cookies; **strong required in production** |
-| `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS |
+| `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS. Also enables HSTS + CSP `upgrade-insecure-requests`. Leave **`false` on plain HTTP LAN** (e.g. TrueNAS) or CSS/icons will not load. |
 | `CORS_ORIGINS` | empty | API CORS: empty = off; `*` = any origin; or comma-separated allowlist |
 | `TRUST_PROXY` | `false` | Set when behind a reverse proxy so `req.ip` / rate limits are correct |
 | `LOGIN_RATE_MAX` | `20` | Max admin login attempts per IP per window |

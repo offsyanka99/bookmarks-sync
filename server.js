@@ -32,15 +32,30 @@ const publicDir = path.join(__dirname, 'public');
 const morganFormat =
   process.env.NODE_ENV === 'production' ? 'combined' : 'dev';
 
+/**
+ * Security headers for API + admin.
+ *
+ * Helmet’s default CSP includes `upgrade-insecure-requests`, which makes browsers
+ * rewrite subresource loads (CSS, icons) to HTTPS. That breaks plain HTTP LAN
+ * deploys (TrueNAS, home lab): HTML loads over http:// but /admin.css is blocked.
+ *
+ * When COOKIE_SECURE=true we assume HTTPS (reverse proxy / TLS) and keep the
+ * upgrade + HSTS defaults. Otherwise disable them.
+ */
 function createHelmet() {
+  const httpsOnly = process.env.COOKIE_SECURE === 'true';
   return helmet({
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
         'script-src': ["'self'", "'unsafe-inline'"],
         'style-src': ["'self'", "'unsafe-inline'"],
+        // null removes the Helmet default directive
+        ...(httpsOnly ? {} : { upgradeInsecureRequests: null }),
       },
     },
+    // HSTS is only meaningful over HTTPS; omit on HTTP-only LAN
+    hsts: httpsOnly,
   });
 }
 
