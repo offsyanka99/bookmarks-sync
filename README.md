@@ -582,6 +582,23 @@ docker compose up -d --build
 
 `docker-compose.yml` requires `ADMIN_PASSWORD` and `SESSION_SECRET` (no weak defaults). Database file: `/app/data/bookmarks.db` inside the volume.
 
+### TrueNAS SCALE (custom app YAML)
+
+Ready-to-paste Compose example (ports, secrets, dataset volume, 1 CPU / 512 MB limits):
+
+**[`docs/truenas-scale.compose.yaml`](./docs/truenas-scale.compose.yaml)**
+
+1. Create a dataset (e.g. `tank/apps/bookmarks-sync`).
+2. Copy the example YAML into **Apps → Custom App / Install via YAML**.
+3. Set `ADMIN_PASSWORD`, `SESSION_SECRET` (`openssl rand -hex 32`), and the host path under `volumes:`.
+4. Keep `SERVER_HOST=0.0.0.0` (listen address inside the container — not your NAS LAN IP).
+5. After deploy:
+   - **API** (extension): `http://NAS-IP:31039` (or your mapped host port)
+   - **Admin UI**: `http://NAS-IP:31040`
+6. Optional: `RESET_ADMIN_PASSWORD: "true"` once to re-apply admin password from env, then set back to `"false"`.
+
+Suggested resources: **1 CPU**, **512 MiB** RAM (raise to 1 GB only for very large libraries).
+
 ---
 
 ## Browser extension (Chrome / Brave / Firefox)
@@ -620,6 +637,8 @@ The extension does **not** use the admin password. Create a normal user (or use 
 
 ### Install — Chrome / Brave
 
+**Developer (unpacked):**
+
 1. Open `chrome://extensions` or `brave://extensions`.
 2. Enable **Developer mode**.
 3. **Load unpacked** → select:
@@ -631,6 +650,16 @@ The extension does **not** use the admin password. Create a normal user (or use 
 4. Open the extension **Options** (or toolbar popup → **Settings**).
 5. Set **API base URL** and **API key** → **Save** (allow host access when the browser prompts).
 6. **Test connection**, then **Sync now** from the popup.
+
+**Chrome Web Store package** (upload ZIP to Google’s dashboard — Google signs the published item):
+
+```bash
+npm run ext:pack-chrome
+# → dist/bookmarks-sync-chrome-0.9.2.zip
+```
+
+Steps, listing copy, privacy policy, and permission justifications:  
+[bookmarks-extension/CHROME-STORE.md](./bookmarks-extension/CHROME-STORE.md)
 
 ### Install — Firefox
 

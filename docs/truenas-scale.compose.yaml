@@ -1,0 +1,103 @@
+# Bookmarks Sync — TrueNAS SCALE custom app example (Docker Compose YAML)
+#
+# Use: Apps → Discover apps → Custom App / Install via YAML
+# (Electric Eel / 24.10+ Docker-based SCALE)
+#
+# Before deploy:
+#   1. Create a dataset, e.g. tank/apps/bookmarks-sync
+#   2. Set ADMIN_PASSWORD (strong, not "admin", min 8 chars in production)
+#   3. Set SESSION_SECRET:  openssl rand -hex 32
+#   4. Adjust host path under volumes: and host ports if needed
+#
+# After deploy:
+#   API  (extensions):  http://NAS-IP:31039
+#   Admin UI:           http://NAS-IP:31040
+#   Extension must use the API port, not the admin port.
+#
+# Docs: README.md → Docker / TrueNAS · Extension: bookmarks-extension/README.md
+
+services:
+  bookmarks-sync:
+    # --- Image source (pick one) -------------------------------------------
+    # A) Build from GitHub (NAS needs outbound access to GitHub)
+    build:
+      context: https://github.com/offsyanka99/bookmarks-sync.git#main
+    # B) Or use a pre-built image you pushed (comment out build: above):
+    # image: ghcr.io/YOURUSER/bookmarks-sync:0.9.2
+
+    container_name: bookmarks-sync
+    restart: unless-stopped
+
+    # Resource caps (some SCALE versions prefer UI fields instead)
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+    ports:
+      # Host:Container
+      # Container ports must match SERVER_PORT / ADMIN_PORT below
+      - "31039:31059" # API  → browser extensions
+      - "31040:31060" # Admin web UI
+
+    environment:
+      NODE_ENV: production
+      # Bind inside the container — keep 0.0.0.0 (do NOT set to the NAS LAN IP)
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "31059"
+      ADMIN_PORT: "31060"
+
+      ADMIN_USERNAME: admin
+      # REQUIRED — change these before first start
+      ADMIN_PASSWORD: "CHANGE_ME_STRONG_PASSWORD"
+      SESSION_SECRET: "PASTE_OPENSSL_RAND_HEX_32_HERE"
+
+      # false = normal (default). true = one-shot re-apply admin password from env, then set back to false
+      RESET_ADMIN_PASSWORD: "false"
+
+      DB_PATH: /app/data/bookmarks.db
+      LOG_DIR: /app/data/logs
+      LOG_TO_STDOUT: "true"
+      LOG_TO_FILE: "true"
+      LOG_STDOUT_FORMAT: json
+      LOG_LEVEL: info
+      LOG_MAX_FILES: "14d"
+      LOG_MAX_SIZE: "20m"
+
+      ALLOW_NEW_SYNCS: "true"
+      MAX_SYNC_SIZE_BYTES: "1048576"
+      STATUS_MESSAGE: "Bookmarks Sync service is online"
+
+      # Empty is fine for native extension clients
+      CORS_ORIGINS: ""
+      # true when behind Traefik/Caddy/nginx so rate limits see real client IPs
+      TRUST_PROXY: "false"
+      # true only when admin UI is served over HTTPS
+      COOKIE_SECURE: "false"
+
+    volumes:
+      # CHANGE THIS to your TrueNAS dataset path
+      - /mnt/tank/apps/bookmarks-sync:/app/data
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:31059/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
