@@ -159,12 +159,87 @@ function crc32(buf) {
   return ~c >>> 0;
 }
 
+function readChromeManifest() {
+  return JSON.parse(
+    fs.readFileSync(path.join(extRoot, 'chrome', 'manifest.json'), 'utf8')
+  );
+}
+
+function validateChromePackage(src) {
+  const manifestPath = path.join(src, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    console.error('Chrome package missing manifest.json');
+    process.exit(1);
+  }
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  if (m.manifest_version !== 3) {
+    console.error('Chrome package must be Manifest V3');
+    process.exit(1);
+  }
+  if (!m.background?.service_worker) {
+    console.error('Chrome package must use background.service_worker');
+    process.exit(1);
+  }
+  if (m.browser_specific_settings) {
+    console.error('Chrome package must not include browser_specific_settings (Firefox-only)');
+    process.exit(1);
+  }
+  // Store requires a 128px icon
+  const icon128 = m.icons?.['128'];
+  if (!icon128 || !fs.existsSync(path.join(src, icon128))) {
+    console.error('Chrome package missing icons.128 PNG');
+    process.exit(1);
+  }
+  // Never ship a private key in the store zip
+  if (fs.existsSync(path.join(src, 'key.pem'))) {
+    console.error('Refuse to pack: key.pem present in chrome/ (remove before store upload)');
+    process.exit(1);
+  }
+  const desc = String(m.description || '');
+  if (desc.length > 132) {
+    console.error(`Chrome description too long (${desc.length} > 132 chars)`);
+    process.exit(1);
+  }
+  return m;
+}
+
 async function packChrome() {
+  // Refresh icons from shared/ before packaging
+  const syncIcons = path.join(extRoot, 'scripts', 'sync-firefox.mjs');
+  // Only need chrome icons; full ext:sync is fine and keeps trees aligned
+  runSyncFirefox();
+
   const src = path.join(extRoot, 'chrome');
-  const out = path.join(distDir, 'bookmarks-sync-chrome.zip');
-  await zipDirectory(src, out);
-  console.log(`Chrome package: ${out}`);
-  return out;
+  const m = validateChromePackage(src);
+  const version = m.version || '0.0.0';
+
+  const outVersioned = path.join(distDir, `bookmarks-sync-chrome-${version}.zip`);
+  const outLatest = path.join(distDir, 'bookmarks-sync-chrome.zip');
+  await zipDirectory(src, outVersioned);
+  fs.copyFileSync(outVersioned, outLatest);
+
+  // Sanity: zip must have manifest at archive root
+  const list = spawnSync('unzip', ['-l', outVersioned], { encoding: 'utf8' });
+  if (list.status === 0 && !/manifest\.json/.test(list.stdout)) {
+    console.error('Chrome zip appears empty or missing manifest.json at root');
+    process.exit(1);
+  }
+  if (list.status === 0 && /manifest\.json/.test(list.stdout)) {
+    const bad = list.stdout
+      .split('\n')
+      .some((line) => /chrome\/manifest\.json|bookmarks-extension\//.test(line));
+    if (bad) {
+      console.error('Chrome zip must contain files at archive root (not nested folders)');
+      process.exit(1);
+    }
+  }
+
+  console.log(`Chrome package: ${outVersioned}`);
+  console.log(`Chrome package: ${outLatest} (same build)`);
+  console.log(`Version:        ${version}`);
+  console.log('Upload the .zip to Chrome Web Store (Developer Dashboard).');
+  console.log('Guide: bookmarks-extension/CHROME-STORE.md');
+  return outVersioned;
 }
 
 async function packFirefox() {

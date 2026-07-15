@@ -118,6 +118,7 @@ bookmarks-extension/
 | Edit code | Change files under **`chrome/`** |
 | Update Firefox copy | `npm run ext:sync` |
 | Guard chrome ↔ firefox | `npm run ext:check` |
+| Pack Chrome store ZIP | `npm run ext:pack-chrome` → `dist/bookmarks-sync-chrome-*.zip` — see [CHROME-STORE.md](./CHROME-STORE.md) |
 | Pack unsigned Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
 | Install Firefox (release) | **`dist/bookmarks-sync-firefox-0.9.2.xpi`** (Mozilla-signed) — see FIREFOX-INSTALL.md |
 | Load Chromium | Unpacked → **`chrome/`** |

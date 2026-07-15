@@ -6,11 +6,12 @@ data/logs/
 .env
 *.log
 .DS_Store
-# Built packages (unsigned rebuilds, chrome zips, etc.)
+# Built packages (unsigned rebuilds, intermediate artifacts)
 dist/*
-# Keep Mozilla-signed Firefox XPIs in the repo for release installs
+# Keep release packages in the repo
 !dist/
 !dist/*.xpi
+!dist/*.zip
 # web-ext / AMO local artifacts (never commit)
 **/web-ext-artifacts/
 **/.amo-upload-uuid
