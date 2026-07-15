@@ -307,24 +307,23 @@ Keep secrets private. Do not commit `.env` or `.session-secret` (both are gitign
 
 ---
 
-## Reset admin password
+## How to reset a forgotten admin password
 
-If you forgot the admin password:
+`/setup` is **not** shown again after an admin already exists.  
+`RESET_ADMIN_PASSWORD=false` (or omitting the variable) does **nothing** — only `true` triggers a reset.
 
-1. In `.env` (or container env) set the desired credentials and enable reset:
+In `.env` (or container env):
 
-   ```env
-   ADMIN_USERNAME=admin
-   ADMIN_PASSWORD=your-new-password
-   RESET_ADMIN_PASSWORD=true
-   ```
+```env
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-new-strong-password
+RESET_ADMIN_PASSWORD=true
+```
 
-2. Restart the server (`npm start` / redeploy).
-3. Confirm the log line: `Reset admin login from env …`
-4. Set `RESET_ADMIN_PASSWORD=false` (or remove the line) and restart again.
-5. Log in at the admin portal with the new password.
-
-`/setup` is **not** available after an admin already exists (security).
+1. Restart the server once (`npm start` / redeploy).
+2. Confirm a log line like: `Reset admin login from env → username "admin"`.
+3. Set `RESET_ADMIN_PASSWORD=false` (or remove the line) and restart again.
+4. Log in with `admin` + the new password.
 
 ---
 
