@@ -246,21 +246,30 @@ getDb();
 bootstrapAdmin();
 loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));
 
-const displayHost = HOST === '0.0.0.0' ? '127.0.0.1' : HOST;
+/**
+ * Host/ports used only in startup log URLs (not the bind address).
+ * SERVER_HOST=0.0.0.0 is correct for listening; logs default to 127.0.0.1 unless
+ * PUBLIC_HOST is set (e.g. TrueNAS LAN IP). PUBLIC_*_PORT for host-mapped ports.
+ */
+const publicHost = (process.env.PUBLIC_HOST || '').trim() || (HOST === '0.0.0.0' ? '127.0.0.1' : HOST);
+const publicApiPort = Number(process.env.PUBLIC_API_PORT) || API_PORT;
+const publicAdminPort = Number(process.env.PUBLIC_ADMIN_PORT) || ADMIN_PORT;
 const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'bookmarks.db');
 const logCfg = getLogConfig();
 
 const apiServer = apiApp.listen(API_PORT, HOST, () => {
   logger.info('API listening', {
-    url: `http://${displayHost}:${API_PORT}`,
+    url: `http://${publicHost}:${publicApiPort}`,
     port: API_PORT,
+    bind: `${HOST}:${API_PORT}`,
   });
 });
 
 const adminServer = adminApp.listen(ADMIN_PORT, HOST, () => {
   logger.info('Admin UI listening', {
-    url: `http://${displayHost}:${ADMIN_PORT}/`,
+    url: `http://${publicHost}:${publicAdminPort}/`,
     port: ADMIN_PORT,
+    bind: `${HOST}:${ADMIN_PORT}`,
   });
   logger.info('Runtime paths', {
     database: dbPath,

@@ -61,6 +61,10 @@ services:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "31059"
       ADMIN_PORT: "31060"
+      # Optional: only for nicer startup log URLs (not required for the app to work)
+      # PUBLIC_HOST: "10.10.20.40"
+      # PUBLIC_API_PORT: "31039"    # host-mapped API port
+      # PUBLIC_ADMIN_PORT: "31040"  # host-mapped admin port
 
       # Admin credentials are NOT set here.
       # First open of the admin UI → /setup → choose password for user "admin".

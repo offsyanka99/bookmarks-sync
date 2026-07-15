@@ -177,9 +177,12 @@ See [Browser extension](#browser-extension-chrome--brave--firefox) for install s
 
 | Variable | Default | Description |
 |---|---|---|
-| `SERVER_PORT` | `31059` | Bookmark sync **API** port |
+| `SERVER_PORT` | `31059` | Bookmark sync **API** port (inside process / container) |
 | `ADMIN_PORT` | `31060` | **Admin UI** port (must differ from API) |
-| `SERVER_HOST` | `0.0.0.0` | Bind address for both ports |
+| `SERVER_HOST` | `0.0.0.0` | Bind address for both ports (keep `0.0.0.0` on Docker/TrueNAS) |
+| `PUBLIC_HOST` | unset → `127.0.0.1` when bound to all interfaces | Optional LAN hostname/IP for **startup log URLs only** (e.g. `10.10.20.40`) |
+| `PUBLIC_API_PORT` | same as `SERVER_PORT` | Optional host-mapped API port for log URLs (e.g. `31039`) |
+| `PUBLIC_ADMIN_PORT` | same as `ADMIN_PORT` | Optional host-mapped admin port for log URLs (e.g. `31040`) |
 | `ADMIN_USERNAME` | `admin` | Username for first-run setup / optional env bootstrap / reset |
 | `ADMIN_PASSWORD` | unset | Optional. If set and no admin exists, create admin at startup (headless). Otherwise use UI `/setup` |
 | `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from env |
