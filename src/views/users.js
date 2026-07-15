@@ -70,14 +70,15 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
           <td class="actions-cell">
             <div class="actions">
             <a class="btn btn-small" href="/users/${escapeHtml(u.id)}/export" title="Download ZIP of this user’s bookmarks">Export ZIP</a>
-            <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-clear-bookmarks"
+            <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-confirm-action"
+              data-confirm="clear-bookmarks"
               data-username="${escapeHtml(u.username)}"
-              data-count="${bmCount}"
-              onsubmit="return confirm('Clear ALL ${bmCount} bookmark(s) for \\'${escapeHtml(u.username)}\\'?\\n\\nThis permanently deletes their bookmarks. The account and API key are kept.\\n\\nThis cannot be undone.') && confirm('Final confirmation: delete all bookmarks for \\'${escapeHtml(u.username)}\\'?');">
+              data-count="${bmCount}">
               <button type="submit" class="btn btn-small btn-ghost" ${bmCount === 0 ? 'disabled' : ''}>Clear bookmarks</button>
             </form>
-            <form method="post" action="/users/${escapeHtml(u.id)}/regenerate-key" class="inline"
-              onsubmit="return confirm('Regenerate API key for ${escapeHtml(u.username)}? The old key will stop working.');">
+            <form method="post" action="/users/${escapeHtml(u.id)}/regenerate-key" class="inline form-confirm-action"
+              data-confirm="regenerate-key"
+              data-username="${escapeHtml(u.username)}">
               <button type="submit" class="btn btn-small">New API key</button>
             </form>
             <form method="post" action="/users/${escapeHtml(u.id)}/password" class="password-form">
@@ -90,8 +91,10 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
                 : `<form method="post" action="/users/${escapeHtml(u.id)}/${toggleAction}" class="inline">
                     <button type="submit" class="btn btn-small btn-ghost">${toggleLabel}</button>
                   </form>
-                  <form method="post" action="/users/${escapeHtml(u.id)}/delete" class="inline"
-                    onsubmit="return confirm('Delete user ${escapeHtml(u.username)} and all their bookmarks?');">
+                  <form method="post" action="/users/${escapeHtml(u.id)}/delete" class="inline form-confirm-action"
+                    data-confirm="delete-user"
+                    data-username="${escapeHtml(u.username)}"
+                    data-count="${bmCount}">
                     <button type="submit" class="btn btn-small btn-danger">Delete</button>
                   </form>`
             }
@@ -196,6 +199,56 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
       <pre>curl -H "Authorization: Bearer &lt;api-key&gt;" http://localhost:${escapeHtml(process.env.SERVER_PORT || '31059')}/api/bookmarks</pre>
     </section>
 
+    <section class="card card-danger-zone">
+      <h2>Danger zone</h2>
+      <p class="muted small">
+        Reset this instance to a clean first-run state. Deletes <strong>all users</strong>
+        (including admins), <strong>all bookmarks</strong>, and the database file.
+        You will be logged out and sent to the setup screen.
+      </p>
+      <form method="post" action="/settings/reset" id="form-reset-default" class="form-reset-default">
+        <input type="hidden" name="confirm_reset" id="reset-confirm-value" value="" />
+        <div class="form-actions">
+          <button type="submit" class="btn btn-danger" id="btn-reset-default">Reset to default</button>
+        </div>
+      </form>
+    </section>
+
+    <dialog id="confirm-action" class="confirm-dialog" aria-labelledby="confirm-action-title">
+      <form method="dialog" class="confirm-dialog-form">
+        <h2 id="confirm-action-title">Confirm</h2>
+        <p id="confirm-action-message" class="confirm-dialog-message"></p>
+        <p id="confirm-action-warning" class="confirm-dialog-warning" hidden></p>
+        <div class="confirm-dialog-actions">
+          <button type="submit" value="cancel" class="btn">Cancel</button>
+          <button type="submit" value="confirm" class="btn" id="confirm-action-ok">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-reset" class="confirm-dialog confirm-dialog-reset" aria-labelledby="confirm-reset-title">
+      <form method="dialog" class="confirm-dialog-form" id="confirm-reset-form">
+        <h2 id="confirm-reset-title">Reset to default?</h2>
+        <p class="confirm-dialog-message">
+          This permanently deletes <strong>everything</strong> on this server:
+        </p>
+        <ul class="confirm-dialog-list">
+          <li>All user accounts (including every admin)</li>
+          <li>All bookmarks for every user</li>
+          <li>The database file itself</li>
+        </ul>
+        <p class="confirm-dialog-warning">This cannot be undone. Export data first if you need a backup.</p>
+        <label class="confirm-checkbox">
+          <input type="checkbox" id="confirm-reset-checkbox" />
+          <span>I understand that everything will be deleted and the admin must be set up again.</span>
+        </label>
+        <div class="confirm-dialog-actions">
+          <button type="submit" value="cancel" class="btn">Cancel</button>
+          <button type="submit" value="confirm" class="btn btn-danger" id="confirm-reset-ok" disabled>Reset everything</button>
+        </div>
+      </form>
+    </dialog>
+
     <script>
       (function () {
         var MASK = '••••••••••••••••••••••••';
@@ -291,29 +344,251 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
           });
         });
 
-        document.querySelectorAll('form.form-clear-bookmarks').forEach(function (form) {
+        // Shared confirmation dialog for destructive actions
+        var dialog = document.getElementById('confirm-action');
+        var titleEl = document.getElementById('confirm-action-title');
+        var messageEl = document.getElementById('confirm-action-message');
+        var warningEl = document.getElementById('confirm-action-warning');
+        var okBtn = document.getElementById('confirm-action-ok');
+        var pendingForm = null;
+
+        function appendText(parent, text) {
+          parent.appendChild(document.createTextNode(text));
+        }
+
+        function appendStrong(parent, text) {
+          var el = document.createElement('strong');
+          el.textContent = text;
+          parent.appendChild(el);
+        }
+
+        function appendBr(parent) {
+          parent.appendChild(document.createElement('br'));
+        }
+
+        function clearNode(node) {
+          node.textContent = '';
+        }
+
+        /** Build dialog content for each action type (DOM APIs — no HTML injection). */
+        function buildConfirmContent(kind, username, count) {
+          clearNode(messageEl);
+          var fallback = '';
+          var title = 'Confirm';
+          var okLabel = 'Confirm';
+          var danger = true;
+          var warning = 'This cannot be undone.';
+
+          if (kind === 'delete-user') {
+            title = 'Delete user?';
+            okLabel = 'Delete user';
+            appendText(messageEl, 'Delete user ');
+            appendStrong(messageEl, username);
+            appendText(messageEl, ' and all their data?');
+            appendBr(messageEl);
+            appendBr(messageEl);
+            appendText(messageEl, 'This permanently removes the account, API key, and ');
+            appendStrong(messageEl, String(count));
+            appendText(messageEl, ' bookmark(s).');
+            fallback =
+              'Delete user "' + username + '" and all their bookmarks (' + count + ')?\\n\\nThis cannot be undone.';
+          } else if (kind === 'clear-bookmarks') {
+            title = 'Clear bookmarks?';
+            okLabel = 'Clear bookmarks';
+            appendText(messageEl, 'Clear all bookmarks for ');
+            appendStrong(messageEl, username);
+            appendText(messageEl, '?');
+            appendBr(messageEl);
+            appendBr(messageEl);
+            appendText(messageEl, 'This permanently deletes ');
+            appendStrong(messageEl, String(count));
+            appendText(messageEl, ' bookmark(s). The user account and API key are kept.');
+            fallback =
+              'Clear ALL ' +
+              count +
+              ' bookmark(s) for "' +
+              username +
+              '"?\\n\\nThis permanently deletes their bookmarks. The account and API key are kept.\\n\\nThis cannot be undone.';
+          } else if (kind === 'regenerate-key') {
+            title = 'Regenerate API key?';
+            okLabel = 'New API key';
+            danger = false;
+            warning = 'The old key will stop working immediately.';
+            appendText(messageEl, 'Generate a new API key for ');
+            appendStrong(messageEl, username);
+            appendText(messageEl, '?');
+            appendBr(messageEl);
+            appendBr(messageEl);
+            appendText(
+              messageEl,
+              'Any extensions or clients using the current key will stop syncing until they are updated.'
+            );
+            fallback =
+              'Regenerate API key for "' + username + '"? The old key will stop working.';
+          } else {
+            appendText(messageEl, 'Are you sure?');
+            fallback = 'Are you sure?';
+          }
+
+          titleEl.textContent = title;
+          okBtn.textContent = okLabel;
+          okBtn.classList.toggle('btn-danger', danger);
+          okBtn.classList.toggle('btn-primary', !danger);
+          if (warning) {
+            warningEl.textContent = warning;
+            warningEl.hidden = false;
+          } else {
+            warningEl.textContent = '';
+            warningEl.hidden = true;
+          }
+
+          return fallback;
+        }
+
+        function openConfirmDialog(form) {
+          if (!dialog || !messageEl || !titleEl || !okBtn) return false;
+          var kind = form.getAttribute('data-confirm') || '';
+          var username = form.getAttribute('data-username') || 'this user';
+          var count = form.getAttribute('data-count') || '0';
+          var fallback = buildConfirmContent(kind, username, count);
+          pendingForm = form;
+
+          if (typeof dialog.showModal === 'function') {
+            dialog.showModal();
+            var cancelBtn = dialog.querySelector('button[value="cancel"]');
+            if (cancelBtn) cancelBtn.focus();
+          } else {
+            var ok = window.confirm(fallback);
+            if (ok) {
+              pendingForm = null;
+              HTMLFormElement.prototype.submit.call(form);
+            } else {
+              pendingForm = null;
+            }
+          }
+          return true;
+        }
+
+        if (dialog) {
+          dialog.addEventListener('close', function () {
+            var form = pendingForm;
+            pendingForm = null;
+            if (dialog.returnValue === 'confirm' && form) {
+              // form.submit() does not fire the submit event — goes straight to the server
+              HTMLFormElement.prototype.submit.call(form);
+            }
+          });
+
+          // Click backdrop to cancel
+          dialog.addEventListener('click', function (e) {
+            if (e.target === dialog) {
+              dialog.close('cancel');
+            }
+          });
+        }
+
+        document.querySelectorAll('form.form-confirm-action').forEach(function (form) {
           form.addEventListener('submit', function (e) {
-            var username = form.getAttribute('data-username') || 'this user';
-            var count = form.getAttribute('data-count') || '0';
-            var msg1 =
-              'Clear bookmarks for "' + username + '"?\\n\\n' +
-              'This will permanently delete ' + count + ' bookmark(s).\\n' +
-              'The user account and API key will be kept.\\n\\n' +
-              'This cannot be undone.';
-            if (!window.confirm(msg1)) {
-              e.preventDefault();
-              return false;
-            }
-            var msg2 =
-              'Final confirmation:\\n\\n' +
-              'Delete ALL bookmarks for "' + username + '"?';
-            if (!window.confirm(msg2)) {
-              e.preventDefault();
-              return false;
-            }
-            return true;
+            e.preventDefault();
+            openConfirmDialog(form);
+            return false;
           });
         });
+
+        // Factory-reset dialog (requires checkbox acknowledgment)
+        var resetForm = document.getElementById('form-reset-default');
+        var resetDialog = document.getElementById('confirm-reset');
+        var resetCheckbox = document.getElementById('confirm-reset-checkbox');
+        var resetOkBtn = document.getElementById('confirm-reset-ok');
+        var resetConfirmValue = document.getElementById('reset-confirm-value');
+        var resetPending = false;
+
+        function resetResetDialogState() {
+          if (resetCheckbox) resetCheckbox.checked = false;
+          if (resetOkBtn) resetOkBtn.disabled = true;
+          if (resetConfirmValue) resetConfirmValue.value = '';
+          resetPending = false;
+        }
+
+        if (resetCheckbox && resetOkBtn) {
+          resetCheckbox.addEventListener('change', function () {
+            resetOkBtn.disabled = !resetCheckbox.checked;
+          });
+        }
+
+        if (resetDialog) {
+          var resetDialogForm = document.getElementById('confirm-reset-form');
+          if (resetDialogForm) {
+            resetDialogForm.addEventListener('submit', function (e) {
+              // Block confirm path unless the acknowledgment checkbox is checked
+              var submitter = e.submitter;
+              var value = submitter && submitter.value ? submitter.value : '';
+              if (value === 'confirm' && (!resetCheckbox || !resetCheckbox.checked)) {
+                e.preventDefault();
+                if (resetOkBtn) resetOkBtn.disabled = true;
+                return false;
+              }
+              return true;
+            });
+          }
+
+          resetDialog.addEventListener('close', function () {
+            var acknowledged = resetCheckbox && resetCheckbox.checked;
+            if (
+              resetDialog.returnValue === 'confirm' &&
+              resetPending &&
+              resetForm &&
+              acknowledged
+            ) {
+              if (resetConfirmValue) resetConfirmValue.value = '1';
+              resetPending = false;
+              HTMLFormElement.prototype.submit.call(resetForm);
+              return;
+            }
+            resetResetDialogState();
+          });
+
+          resetDialog.addEventListener('click', function (e) {
+            if (e.target === resetDialog) {
+              resetDialog.close('cancel');
+            }
+          });
+        }
+
+        if (resetForm) {
+          resetForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (!resetDialog) return false;
+            resetPending = true;
+            if (resetCheckbox) resetCheckbox.checked = false;
+            if (resetOkBtn) resetOkBtn.disabled = true;
+            if (resetConfirmValue) resetConfirmValue.value = '';
+            if (typeof resetDialog.showModal === 'function') {
+              resetDialog.showModal();
+              if (resetCheckbox) resetCheckbox.focus();
+            } else {
+              // Fallback: double confirm + require typing (checkbox not available)
+              var ok1 = window.confirm(
+                'Reset to default?\\n\\nThis deletes ALL users, bookmarks, and the database. You will need to set up the admin again.\\n\\nThis cannot be undone.'
+              );
+              if (!ok1) {
+                resetPending = false;
+                return false;
+              }
+              var typed = window.prompt(
+                'Type RESET to confirm that you understand everything will be deleted:'
+              );
+              if (typed === 'RESET') {
+                if (resetConfirmValue) resetConfirmValue.value = '1';
+                resetPending = false;
+                HTMLFormElement.prototype.submit.call(resetForm);
+              } else {
+                resetPending = false;
+              }
+            }
+            return false;
+          });
+        }
       })();
     </script>`;
 

@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.1.0`
+**Version:** `1.2.0`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -15,7 +15,12 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
 
-### What’s new in 1.1.0
+### What’s new in 1.2.0
+
+- **Admin confirmation dialogs** for delete user, clear bookmarks, and regenerate API key
+- **Reset to default** (danger zone): wipe all users, bookmarks, and the DB, log out, return to `/setup`
+
+### 1.1.0
 
 - **First-run setup:** no admin password in `.env` / YAML — open admin UI → `/setup` → set password for `admin` → API key generated → login
 - **`SESSION_SECRET` auto-generated** into the data volume (`.session-secret`) when unset
@@ -109,6 +114,8 @@ bookmarks-sync/
 - **First-run setup** in the admin UI (default username `admin`); no password required in env/YAML
 - **Username + password** for admin web login after setup
 - **Per-user API keys** for `/api/bookmarks` (extension / scripts), with **copy** in the admin UI
+- **Confirm dialogs** for destructive admin actions (delete user, clear bookmarks, new API key)
+- **Factory reset** from the admin UI (danger zone → `/setup`)
 - Bookmarks **scoped by user** (`user_id`)
 - SQLite (WAL mode), soft deletes, import/export, full sync
 - Optional env bootstrap / password reset via `ADMIN_PASSWORD` + `RESET_ADMIN_PASSWORD`
@@ -312,10 +319,12 @@ Keep secrets private. Do not commit `.env` or `.session-secret` (both are gitign
 
 ## How to reset a forgotten admin password
 
-`/setup` is **not** shown again after an admin already exists.  
+`/setup` is **not** shown again after an admin already exists (unless you factory-reset).  
 `RESET_ADMIN_PASSWORD=false` (or omitting the variable) does **nothing** — only `true` triggers a reset.
 
-In `.env` (or container env):
+**Option A — Admin UI factory reset (1.2.0+):** open the portal → **Danger zone** → **Reset to default** → confirm with the checkbox. This deletes **all** users, bookmarks, and the database file, logs you out, and sends you to `/setup`. Export data first if you need a backup.
+
+**Option B — env password reset** (keeps users/bookmarks; only changes admin login). In `.env` (or container env):
 
 ```env
 ADMIN_USERNAME=admin
@@ -347,8 +356,11 @@ Base URL: `http://127.0.0.1:<ADMIN_PORT>/`
 | `POST /users/:id/password` | Set password |
 | `POST /users/:id/enable` / `disable` | Activate / deactivate |
 | `POST /users/:id/delete` | Delete user and their bookmarks |
+| `POST /users/:id/clear-bookmarks` | Permanently delete all bookmarks for a user |
+| `POST /settings/log-level` | Change log level |
+| `POST /settings/reset` | Factory reset: wipe DB, log out, return to `/setup` |
 
-Only users with the **admin** flag can use this UI. Non-admin accounts are for API access only (for now).
+Only users with the **admin** flag can use this UI. Non-admin accounts are for API access only (for now). Destructive actions use in-page confirmation dialogs; factory reset also requires an acknowledgment checkbox.
 
 ---
 

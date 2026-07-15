@@ -25,5 +25,6 @@ router.get('/users/:id/export', requireAdmin, adminController.exportUserBookmark
 router.post('/users/:id/clear-bookmarks', requireAdmin, adminController.clearUserBookmarks);
 router.get('/export/bookmarks', requireAdmin, adminController.exportAllBookmarks);
 router.post('/settings/log-level', requireAdmin, adminController.setLogLevel);
+router.post('/settings/reset', requireAdmin, adminController.resetToDefault);
 
 module.exports = router;

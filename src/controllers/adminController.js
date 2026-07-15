@@ -4,6 +4,7 @@ const { loginPage } = require('../views/login');
 const { setupPage, setupCompletePage } = require('../views/setup');
 const { usersPage } = require('../views/users');
 const { needsSetup } = require('../utils/bootstrap');
+const { resetDatabase } = require('../utils/db');
 const {
   getAdminPasswordError,
   resolveBootstrapAdminUsername,
@@ -12,6 +13,7 @@ const {
   logger,
   getLogConfig,
   saveLevelToDb,
+  loadLevelFromDb,
 } = require('../utils/logger');
 const { createRateLimiter } = require('../utils/rateLimit');
 const { zipStore } = require('../utils/zipStore');
@@ -496,6 +498,54 @@ const adminController = {
       setFlash(req, 'error', 'Failed to clear bookmarks');
     }
     res.redirect('/');
+  },
+
+  /**
+   * Factory reset: wipe the entire database (all users including admins,
+   * all bookmarks, meta), destroy the session, send the browser to first-run setup.
+   * POST /settings/reset
+   * Requires body.confirm_reset === '1' (checkbox in the confirm dialog).
+   */
+  resetToDefault(req, res) {
+    const confirmed =
+      req.body.confirm_reset === '1' ||
+      req.body.confirm_reset === 'on' ||
+      req.body.confirm_reset === true;
+
+    if (!confirmed) {
+      setFlash(
+        req,
+        'error',
+        'Reset cancelled: you must confirm that you understand everything will be deleted.'
+      );
+      return res.redirect('/');
+    }
+
+    const by = req.user?.username;
+    try {
+      logger.warn('Factory reset requested — wiping database', { by, ip: req.ip });
+      resetDatabase();
+      // Log level was stored in DB meta; fall back to env/default after wipe
+      try {
+        loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));
+      } catch {
+        // ignore — logger keeps previous in-memory level if meta is empty
+      }
+      logger.warn('Factory reset completed — database wiped', { by, ip: req.ip });
+    } catch (err) {
+      logger.error('Factory reset failed', {
+        err: err.message,
+        stack: err.stack,
+        by,
+      });
+      setFlash(req, 'error', 'Factory reset failed. Check server logs.');
+      return res.redirect('/');
+    }
+
+    // Destroy session after wipe so the cookie no longer maps to a user
+    req.session.destroy(() => {
+      res.redirect('/setup');
+    });
   },
 };
 

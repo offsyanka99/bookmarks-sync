@@ -116,4 +116,38 @@ function closeDb() {
   }
 }
 
-module.exports = { getDb, closeDb };
+/**
+ * Resolve the configured SQLite file path (same rules as getDb).
+ */
+function getDbPath() {
+  return process.env.DB_PATH || path.join(process.cwd(), 'data', 'bookmarks.db');
+}
+
+/**
+ * Factory-reset: delete the database file (and WAL/SHM sidecars) and reopen
+ * a fresh empty DB with schema. All users, bookmarks, and meta are gone.
+ *
+ * Safe to call while the process is running; the connection is closed first.
+ */
+function resetDatabase() {
+  const dbPath = getDbPath();
+  closeDb();
+
+  for (const candidate of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      if (fs.existsSync(candidate)) {
+        fs.unlinkSync(candidate);
+      }
+    } catch (err) {
+      throw Object.assign(
+        new Error(`Failed to remove database file ${candidate}: ${err.message}`),
+        { code: 'RESET_FAILED', cause: err }
+      );
+    }
+  }
+
+  // Recreate empty schema
+  getDb();
+}
+
+module.exports = { getDb, closeDb, getDbPath, resetDatabase };
