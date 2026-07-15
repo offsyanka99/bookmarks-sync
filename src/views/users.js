@@ -1,12 +1,13 @@
 const { layout, escapeHtml } = require('./layout');
 
+/**
+ * Emit a <time> with ISO datetime. Visible text is filled by the page script
+ * using the browser's local timezone (server/container is often UTC).
+ */
 function formatDate(iso) {
   if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+  const raw = String(iso);
+  return `<time class="local-time" datetime="${escapeHtml(raw)}" data-iso="${escapeHtml(raw)}">${escapeHtml(raw)}</time>`;
 }
 
 function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
@@ -65,7 +66,7 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
             </div>
           </td>
           <td class="num">${bmCount}</td>
-          <td class="muted small">${escapeHtml(formatDate(u.createdAt))}</td>
+          <td class="muted small">${formatDate(u.createdAt)}</td>
           <td class="actions">
             <a class="btn btn-small" href="/users/${escapeHtml(u.id)}/export" title="Download ZIP of this user’s bookmarks">Export ZIP</a>
             <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-clear-bookmarks"
@@ -197,6 +198,27 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
     <script>
       (function () {
         var MASK = '••••••••••••••••••••••••';
+
+        // Format timestamps in the browser locale/timezone (container is usually UTC)
+        document.querySelectorAll('time.local-time[data-iso]').forEach(function (el) {
+          var iso = el.getAttribute('data-iso') || el.getAttribute('datetime') || '';
+          if (!iso) return;
+          var d = new Date(iso);
+          if (Number.isNaN(d.getTime())) return;
+          try {
+            el.textContent = d.toLocaleString(undefined, {
+              year: 'numeric',
+              month: 'numeric',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              second: '2-digit',
+            });
+            el.title = d.toISOString() + ' (UTC)';
+          } catch (err) {
+            el.textContent = d.toString();
+          }
+        });
 
         document.querySelectorAll('.btn-toggle-key').forEach(function (btn) {
           btn.addEventListener('click', function () {
