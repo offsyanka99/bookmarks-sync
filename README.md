@@ -15,6 +15,22 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
 
+## Screenshots
+
+### Admin portal
+
+User management, API keys, export, and logging:
+
+![Admin portal — users](docs/screenshots/admin-users.jpg)
+
+### Browser extension
+
+Options (server URL, API key, sync behaviour) and the toolbar popup:
+
+| Options | Popup |
+|---|---|
+| ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
+
 ### What’s new in 1.2.0
 
 - **Admin confirmation dialogs** for delete user, clear bookmarks, and regenerate API key
@@ -101,6 +117,7 @@ bookmarks-sync/
 │   └── bookmarks-sync-firefox-*.xpi  # Firefox package (sign for release Firefox)
 ├── docs/
 │   ├── PRIVACY.md / privacy.html     # Extension privacy policy
+│   ├── screenshots/                  # README screenshots
 │   └── truenas-scale.compose.yaml    # TrueNAS SCALE custom app example
 └── README.md
 ```
