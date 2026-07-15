@@ -592,12 +592,14 @@ Ready-to-paste Compose example (ports, secrets, dataset volume, 1 CPU / 512 MB
 **[`docs/truenas-scale.compose.yaml`](./docs/truenas-scale.compose.yaml)**
 
 1. Create a dataset (e.g. `tank/apps/bookmarks-sync`).
-2. **Permissions (important):** the image runs as **uid/gid 1001**. On TrueNAS Shell:
+2. **Permissions (important):** on TrueNAS SCALE Apps the process should run as the **`apps` user (uid/gid 568)**. On TrueNAS Shell:
    ```bash
    mkdir -p /mnt/tank/apps/bookmarks-sync
-   chown -R 1001:1001 /mnt/tank/apps/bookmarks-sync
+   chown -R 568:568 /mnt/tank/apps/bookmarks-sync
+   id apps   # confirm uid=568 gid=568
    ```
-   Without this you get `EACCES: permission denied, mkdir '/app/data/logs'` and the container restarts.
+   The example YAML sets `user: "568:568"`. Without matching ownership you get `EACCES: permission denied, mkdir '/app/data/logs'` and the container restarts.
+   (Plain Docker outside TrueNAS still uses image default uid **1001** — see `Dockerfile`.)
 3. Copy the example YAML into **Apps → Custom App / Install via YAML**.
 4. Set `ADMIN_PASSWORD`, `SESSION_SECRET` (`openssl rand -hex 32`), and the host path under `volumes:`.
 5. Keep `SERVER_HOST=0.0.0.0` (listen address inside the container — not your NAS LAN IP).

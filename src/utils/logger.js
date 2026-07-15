@@ -40,7 +40,8 @@ function ensureLogDir() {
     process.stderr.write(
       `[bookmarks-sync] Cannot write log dir "${LOG_DIR}" (${err.code || err.message}). ` +
         `File logging disabled; using stdout. ` +
-        `On TrueNAS: chown -R 1001:1001 <host-data-path> (container user is uid 1001).\n`
+        `Fix host volume ownership to match the container user ` +
+        `(TrueNAS Apps: chown -R 568:568 <host-data-path>; plain Docker image default: 1001:1001).\n`
     );
     return false;
   }
