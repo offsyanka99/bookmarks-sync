@@ -194,7 +194,6 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
     <section class="card muted small">
       <p><strong>API usage</strong> (per user):</p>
       <pre>curl -H "Authorization: Bearer &lt;api-key&gt;" http://localhost:${escapeHtml(process.env.SERVER_PORT || '31059')}/api/bookmarks</pre>
-      <p>Bookmark management UI for end users is planned next. For now, admins manage accounts only.</p>
     </section>
 
     <script>
