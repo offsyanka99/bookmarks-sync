@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.0.0`
+**Version:** `1.1.0`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -14,6 +14,12 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 | **Users** | Per-user **API key** (REST API / browser extension) | Only their own bookmarks |
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
+
+### What’s new in 1.1.0
+
+- **First-run setup:** no admin password in `.env` / YAML — open admin UI → `/setup` → set password for `admin` → API key generated → login
+- **`SESSION_SECRET` auto-generated** into the data volume (`.session-secret`) when unset
+- **TrueNAS / Docker:** deploy without embedding credentials
 
 ### 1.0.0 — first stable release
 
@@ -100,12 +106,13 @@ bookmarks-sync/
 
 - **Multi-user**: admin creates accounts; no public signup
 - **Admin portal** on a **separate port** from the API
-- **Username + password** for admin web login
+- **First-run setup** in the admin UI (default username `admin`); no password required in env/YAML
+- **Username + password** for admin web login after setup
 - **Per-user API keys** for `/api/bookmarks` (extension / scripts), with **copy** in the admin UI
 - Bookmarks **scoped by user** (`user_id`)
 - SQLite (WAL mode), soft deletes, import/export, full sync
-- Bootstrap admin from `.env`; optional password reset via env flag
-- **Production safeguards:** strong `SESSION_SECRET` / `ADMIN_PASSWORD` required; login & API-key rate limits
+- Optional env bootstrap / password reset via `ADMIN_PASSWORD` + `RESET_ADMIN_PASSWORD`
+- **Production safeguards:** auto or explicit `SESSION_SECRET`; strong passwords on setup/bootstrap; login & API-key rate limits
 - **Browser extension (Chrome / Brave / Firefox)** — see [`bookmarks-extension/`](./bookmarks-extension/)
 
 **Not yet**
@@ -120,7 +127,7 @@ bookmarks-sync/
 
 ```bash
 cp .env.example .env
-# Local dev may keep ADMIN_PASSWORD=admin; set a strong SESSION_SECRET if you like
+# No ADMIN_PASSWORD required — complete setup in the browser on first run
 
 npm install
 npm start
@@ -130,17 +137,8 @@ Then open:
 
 | Service | URL (defaults) |
 |---|---|
-| Admin portal | http://127.0.0.1:31060/login |
+| Admin portal (first run → setup) | http://127.0.0.1:31060/ |
 | API health | http://127.0.0.1:31059/health |
-
-**Default admin login (first bootstrap, development only):**
-
-| Field | Default |
-|---|---|
-| Username | `admin` |
-| Password | `admin` |
-
-**Production** (`NODE_ENV=production`, including Docker Compose) **refuses to start** with a default/placeholder `SESSION_SECRET` or a weak `ADMIN_PASSWORD` when creating/resetting the admin. See [Session secret](#session-secret-session_secret) and [Production secrets](#production-secrets).
 
 Dev mode (auto-restart on file changes, Node 20+):
 
@@ -148,25 +146,24 @@ Dev mode (auto-restart on file changes, Node 20+):
 npm run dev
 ```
 
-### First-time admin
+### First-time admin (recommended)
 
-On the **first** start (when no admin exists in the database), the server creates an admin from:
+1. Start the server with an empty database (no admin user yet).
+2. Open the **admin UI** — you are redirected to **`/setup`**.
+3. Set a password for the built-in username **`admin`** (min 8 characters; not a known default).
+4. Copy the **API key** shown once on the success screen (also available later in the portal).
+5. **Log in** at `/login` with `admin` + your password.
 
-```env
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin
-```
+No admin password needs to live in `.env` or Docker/TrueNAS YAML.
 
-If `ADMIN_PASSWORD` is omitted, it defaults to `admin` in development only (with a console warning). In production, bootstrap/reset **exits** if the password is missing, a known default (`admin`, etc.), or shorter than 8 characters.
-
-The admin **API key** is printed once in the server log and is always visible in the admin UI.
+**Optional headless bootstrap** (automation / CI): set `ADMIN_PASSWORD` (and optional `ADMIN_USERNAME`) before first start. The process creates the admin without the setup page. Weak passwords still fail closed in production.
 
 > Changing `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `.env` later does **not** update an existing admin. See [Reset admin password](#reset-admin-password).
 
 ### Create users
 
 1. Log in to the admin portal (admin only in v1).
-2. Create a user (username, password, optional display name).
+2. Create a user (username, password, optional display name) — or use the admin’s own API key for the extension.
 3. **Copy** that user’s **API key** (copy icon next to the key).
 4. Use the key with:
    - the **browser extension** (Options → API key), or  
@@ -183,10 +180,10 @@ See [Browser extension](#browser-extension-chrome--brave--firefox) for install s
 | `SERVER_PORT` | `31059` | Bookmark sync **API** port |
 | `ADMIN_PORT` | `31060` | **Admin UI** port (must differ from API) |
 | `SERVER_HOST` | `0.0.0.0` | Bind address for both ports |
-| `ADMIN_USERNAME` | `admin` | Admin username on first bootstrap (or reset) |
-| `ADMIN_PASSWORD` | `admin` (dev only) | Admin password on first bootstrap (or reset); **strong required in production** |
-| `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from `.env` |
-| `SESSION_SECRET` | dev placeholder (dev only) | Signs admin session cookies; **strong required in production** |
+| `ADMIN_USERNAME` | `admin` | Username for first-run setup / optional env bootstrap / reset |
+| `ADMIN_PASSWORD` | unset | Optional. If set and no admin exists, create admin at startup (headless). Otherwise use UI `/setup` |
+| `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from env |
+| `SESSION_SECRET` | auto file | Signs admin session cookies. Prefer env, else `data/.session-secret` (auto-created) |
 | `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS. Also enables HSTS + CSP `upgrade-insecure-requests`. Leave **`false` on plain HTTP LAN** (e.g. TrueNAS) or CSS/icons will not load. |
 | `CORS_ORIGINS` | empty | API CORS: empty = off; `*` = any origin; or comma-separated allowlist |
 | `TRUST_PROXY` | `false` | Set when behind a reverse proxy so `req.ip` / rate limits are correct |
@@ -214,15 +211,18 @@ When `NODE_ENV=production` (Docker Compose sets this):
 
 | Check | Behavior |
 |---|---|
-| `SESSION_SECRET` missing, &lt;16 chars, or a known placeholder | **Process exits** before listen |
-| First admin bootstrap / `RESET_ADMIN_PASSWORD=true` with weak `ADMIN_PASSWORD` | **Process exits** |
-| Docker Compose | `ADMIN_PASSWORD` and `SESSION_SECRET` are **required** (no weak defaults) |
+| `SESSION_SECRET` unset | **Auto-generated** into the data dir (`.session-secret`) |
+| `SESSION_SECRET` set but insecure (short / placeholder) | **Process exits** |
+| First-run `/setup` with weak password | Form error (admin not created) |
+| Env bootstrap / `RESET_ADMIN_PASSWORD=true` with weak `ADMIN_PASSWORD` | **Process exits** |
 
-Generate `SESSION_SECRET` with `openssl rand -hex 32` (or the Node one-liner under [How to generate a strong secret](#how-to-generate-a-strong-secret)), then:
+Typical Docker / TrueNAS: **no secrets in compose** — open the admin UI and complete setup.
+
+Optional headless:
 
 ```bash
 export ADMIN_PASSWORD='your-strong-password'
-export SESSION_SECRET="$(openssl rand -hex 32)"
+export SESSION_SECRET="$(openssl rand -hex 32)"   # optional; else auto file
 docker compose up -d --build
 ```
 
@@ -267,10 +267,6 @@ Local dev uses prettier console lines unless you set `LOG_STDOUT_FORMAT=json`.
 
 ## Session secret (`SESSION_SECRET`)
 
-```env
-SESSION_SECRET=a-long-random-value-from-openssl-rand-hex-32
-```
-
 This value is the **secret key used to sign the admin portal’s session cookie**.
 
 When you log in to the admin UI, Express creates a **new** session id (`session.regenerate`) and stores a cookie in your browser (`bms.sid`). That cookie is **signed** with `SESSION_SECRET` so the server can tell:
@@ -280,54 +276,42 @@ When you log in to the admin UI, Express creates a **new** session id (`session.
 
 If the secret is wrong or changed, existing sessions become invalid and you must log in again.
 
-### Why the default is only for local testing
+### Resolution order
 
-In development, a well-known placeholder is used if `SESSION_SECRET` is unset. Anyone who knows that value can more easily forge session cookies. **Production refuses to start** with a missing, short, or placeholder secret.
+1. **`SESSION_SECRET` env** — if set to a strong value (≥16 chars, not a known placeholder)
+2. **File next to the DB** — `data/.session-secret` (or alongside `DB_PATH`)
+3. **Auto-generate** — write a new random secret to that file (mode `0600`) and use it
 
-### How to generate a strong secret
+You do **not** need to put a secret in TrueNAS YAML for a normal deploy. Keep the data volume so the file survives restarts.
 
-Either command prints a 64-character hex string (32 random bytes):
+### Optional: set explicitly
 
 ```bash
 openssl rand -hex 32
+# or: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-**Local `.env`**
 
 ```env
 SESSION_SECRET=paste-the-output-here
 ```
 
-Then restart the server (`npm start`) and log in again at the admin portal (old cookies will no longer validate).
-
-**Docker Compose / shell**
-
-```bash
-export SESSION_SECRET="$(openssl rand -hex 32)"
-export ADMIN_PASSWORD='your-strong-password'
-```
-
-Keep `SESSION_SECRET` private. Do not commit `.env` (it is listed in `.gitignore`).
+Keep secrets private. Do not commit `.env` or `.session-secret` (both are gitignored).
 
 ### Related credentials
 
-| Variable | Used for |
+| Credential | Used for |
 |---|---|
-| `ADMIN_PASSWORD` | Admin web login (who you are) |
-| `SESSION_SECRET` | Signing the cookie after login (proves the session is genuine) |
+| Admin password (from `/setup` or optional `ADMIN_PASSWORD`) | Admin web login |
+| `SESSION_SECRET` (env or auto file) | Signing the cookie after login |
 | User **API key** | Auth for the REST API / extension (not the admin web UI) |
 
 ---
 
 ## Reset admin password
 
-If you forgot the admin password or changed `.env` and still can’t log in:
+If you forgot the admin password:
 
-1. In `.env` set the desired credentials and enable reset:
+1. In `.env` (or container env) set the desired credentials and enable reset:
 
    ```env
    ADMIN_USERNAME=admin
@@ -335,10 +319,12 @@ If you forgot the admin password or changed `.env` and still can’t log in:
    RESET_ADMIN_PASSWORD=true
    ```
 
-2. Restart the server (`npm start`).
-3. Confirm the log line: `Reset admin login from .env …`
+2. Restart the server (`npm start` / redeploy).
+3. Confirm the log line: `Reset admin login from env …`
 4. Set `RESET_ADMIN_PASSWORD=false` (or remove the line) and restart again.
 5. Log in at the admin portal with the new password.
+
+`/setup` is **not** available after an admin already exists (security).
 
 ---
 
@@ -348,6 +334,8 @@ Base URL: `http://127.0.0.1:<ADMIN_PORT>/`
 
 | Path | Description |
 |---|---|
+| `GET /setup` | First-run: set password for `admin` (only if no admin exists) |
+| `POST /setup` | Create admin + API key |
 | `GET /login` | Login form (username + password) |
 | `POST /login` | Authenticate (session cookie) |
 | `POST /logout` | End session |
@@ -567,30 +555,27 @@ docker run -d \
   -p 31060:31060 \
   -e SERVER_PORT=31059 \
   -e ADMIN_PORT=31060 \
-  -e ADMIN_USERNAME=admin \
-  -e ADMIN_PASSWORD='your-strong-password' \
-  -e SESSION_SECRET="$(openssl rand -hex 32)" \
   -e DB_PATH=/app/data/bookmarks.db \
   -e NODE_ENV=production \
   -v bookmarks-sync-data:/app/data \
   bookmarks-sync:latest
 ```
 
+Then open the admin UI and complete **first-run setup** (set password for `admin`).  
+Optional: pass `-e ADMIN_PASSWORD=...` and/or `-e SESSION_SECRET=...` for headless bootstrap.
+
 ### docker-compose
 
-Set secrets in the environment (or a local `.env` next to Compose — not baked into the image):
-
 ```bash
-export ADMIN_PASSWORD='your-strong-password'
-export SESSION_SECRET="$(openssl rand -hex 32)"
 docker compose up -d --build
 ```
 
-`docker-compose.yml` requires `ADMIN_PASSWORD` and `SESSION_SECRET` (no weak defaults). Database file: `/app/data/bookmarks.db` inside the volume.
+No required secrets. Database + auto session secret: `/app/data` volume.  
+Optional env: `ADMIN_PASSWORD`, `SESSION_SECRET` (see `.env.example`).
 
 ### TrueNAS SCALE (custom app YAML)
 
-Ready-to-paste Compose example (ports, secrets, dataset volume, 1 CPU / 512 MB limits):
+Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**):
 
 **[`docs/truenas-scale.compose.yaml`](./docs/truenas-scale.compose.yaml)**
 
@@ -603,13 +588,12 @@ Ready-to-paste Compose example (ports, secrets, dataset volume, 1 CPU / 512 MB
    ```
    The example YAML sets `user: "568:568"`. Without matching ownership you get `EACCES: permission denied, mkdir '/app/data/logs'` and the container restarts.
    (Plain Docker outside TrueNAS still uses image default uid **1001** — see `Dockerfile`.)
-3. Copy the example YAML into **Apps → Custom App / Install via YAML**.
-4. Set `ADMIN_PASSWORD`, `SESSION_SECRET` (`openssl rand -hex 32`), and the host path under `volumes:`.
-5. Keep `SERVER_HOST=0.0.0.0` (listen address inside the container — not your NAS LAN IP).
-6. After deploy:
-   - **API** (extension): `http://NAS-IP:31039` (or your mapped host port)
-   - **Admin UI**: `http://NAS-IP:31040`
-7. Optional: `RESET_ADMIN_PASSWORD: "true"` once to re-apply admin password from env, then set back to `"false"`.
+3. Copy the example YAML into **Apps → Custom App / Install via YAML** (set host path under `volumes:`).
+4. Keep `SERVER_HOST=0.0.0.0` (listen address inside the container — not your NAS LAN IP).
+5. After deploy:
+   - **Admin UI**: `http://NAS-IP:31040` → complete **`/setup`** (password for `admin`)
+   - **API** (extension): `http://NAS-IP:31039`
+6. Optional recovery only: `ADMIN_PASSWORD` + `RESET_ADMIN_PASSWORD: "true"` once, then remove.
 
 Suggested resources: **1 CPU**, **512 MiB** RAM (raise to 1 GB only for very large libraries).
 

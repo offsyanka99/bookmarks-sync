@@ -4,6 +4,10 @@ const { requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
+// First-run setup (only while no admin exists)
+router.get('/setup', adminController.showSetup);
+router.post('/setup', adminController.completeSetup);
+
 // Public auth pages
 router.get('/login', adminController.showLogin);
 router.post('/login', adminController.login);

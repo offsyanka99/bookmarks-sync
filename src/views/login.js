@@ -1,13 +1,13 @@
 const { layout, escapeHtml } = require('./layout');
 
-function loginPage({ error, username = '' } = {}) {
+function loginPage({ error, username = 'admin' } = {}) {
   const flash = error ? { type: 'error', message: error } : null;
 
   const body = `
     <div class="auth-wrap">
       <div class="card auth-card">
         <h1>Admin login</h1>
-        <p class="muted">Sign in with your username and password.</p>
+        <p class="muted">Sign in with your admin username and password.</p>
         <form method="post" action="/login" class="stack">
           <label>
             Username

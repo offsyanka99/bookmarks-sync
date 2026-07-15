@@ -9,10 +9,11 @@ services:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "31059"
       ADMIN_PORT: "31060"
-      # Required in production — no weak defaults (Compose fails if unset/empty)
+      # Optional: headless first admin (otherwise open admin UI → /setup)
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD to a strong password}
-      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET (e.g. openssl rand -hex 32)}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Optional: override; if empty, auto-generated under /app/data/.session-secret
+      SESSION_SECRET: ${SESSION_SECRET:-}
       DB_PATH: /app/data/bookmarks.db
       STATUS_MESSAGE: ${STATUS_MESSAGE:-Bookmarks Sync service is online}
       ALLOW_NEW_SYNCS: ${ALLOW_NEW_SYNCS:-true}

@@ -4,40 +4,54 @@ const { hashPassword } = require('./crypto');
 const {
   assertAdminPasswordSafe,
   resolveBootstrapAdminPassword,
+  resolveBootstrapAdminUsername,
 } = require('./securityConfig');
 
 /**
- * Ensure at least one admin exists.
- * ADMIN_USERNAME / ADMIN_PASSWORD are used only when:
- *   - no admin exists yet (create), or
- *   - RESET_ADMIN_PASSWORD=true (overwrite existing admin login from .env)
+ * True when no admin exists yet — admin UI should show first-run /setup.
+ * @returns {boolean}
+ */
+function needsSetup() {
+  return User.countAdmins() === 0;
+}
+
+/**
+ * Ensure at least one admin exists *only* when ADMIN_PASSWORD is set in the environment.
  *
- * Changing .env alone does NOT update an existing admin — set RESET_ADMIN_PASSWORD=true once, restart, then remove it.
+ * Default (no ADMIN_PASSWORD): leave empty → first-run setup in the admin UI.
+ * Optional headless bootstrap: set ADMIN_PASSWORD (and optional ADMIN_USERNAME).
+ * Emergency reset: RESET_ADMIN_PASSWORD=true + ADMIN_PASSWORD, restart once, then remove.
  *
  * In production, bootstrap/reset refuses known-default or short ADMIN_PASSWORD values.
  */
 function bootstrapAdmin() {
   const db = getDb();
   const adminCount = User.countAdmins();
-  const username = (process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase();
+  const username = resolveBootstrapAdminUsername();
   const password = resolveBootstrapAdminPassword();
   const reset = String(process.env.RESET_ADMIN_PASSWORD || '').toLowerCase() === 'true';
 
   if (adminCount === 0) {
-    assertAdminPasswordSafe(password, { context: 'bootstrap the first admin' });
+    if (password == null) {
+      console.log(
+        '[bootstrap] No admin user yet. Open the admin UI to set the password for user "admin" (first-run setup).'
+      );
+    } else {
+      assertAdminPasswordSafe(password, { context: 'bootstrap the first admin' });
 
-    const admin = User.create({
-      username,
-      password,
-      displayName: 'Administrator',
-      isAdmin: true,
-    });
+      const admin = User.create({
+        username,
+        password,
+        displayName: 'Administrator',
+        isAdmin: true,
+      });
 
-    console.log(`[bootstrap] Created admin user "${admin.username}"`);
-    console.log(`[bootstrap] Admin API key: ${admin.apiKey}`);
-    console.log('[bootstrap] Store the API key securely; it is also visible in the admin UI.');
+      console.log(`[bootstrap] Created admin user "${admin.username}" from ADMIN_PASSWORD env`);
+      console.log(`[bootstrap] Admin API key: ${admin.apiKey}`);
+      console.log('[bootstrap] Store the API key securely; it is also visible in the admin UI.');
+    }
   } else if (reset) {
-    if (!password || password.length < 1) {
+    if (password == null || password.length < 1) {
       console.error('[bootstrap] RESET_ADMIN_PASSWORD=true but ADMIN_PASSWORD is empty.');
       process.exit(1);
     }
@@ -54,7 +68,7 @@ function bootstrapAdmin() {
     ).run(username, hashPassword(password), new Date().toISOString(), adminRow.id);
 
     console.log(
-      `[bootstrap] Reset admin login from .env → username "${username}". Remove RESET_ADMIN_PASSWORD from .env now.`
+      `[bootstrap] Reset admin login from env → username "${username}". Remove RESET_ADMIN_PASSWORD now.`
     );
   }
 
@@ -76,4 +90,4 @@ function bootstrapAdmin() {
   }
 }
 
-module.exports = { bootstrapAdmin };
+module.exports = { bootstrapAdmin, needsSetup };

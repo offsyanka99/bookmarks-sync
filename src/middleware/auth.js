@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { needsSetup } = require('../utils/bootstrap');
 const { createRateLimiter } = require('../utils/rateLimit');
 const { logger } = require('../utils/logger');
 
@@ -54,8 +55,16 @@ function requireApiKey(req, res, next) {
 /**
  * Session auth for admin web UI.
  * Redirects to login for browser navigations; JSON 401 for XHR.
+ * First-run (no admin): redirect to /setup.
  */
 function requireSession(req, res, next) {
+  if (needsSetup()) {
+    if (req.accepts('html')) {
+      return res.redirect('/setup');
+    }
+    return res.status(503).json({ error: 'Admin setup required', setup: '/setup' });
+  }
+
   if (req.session && req.session.user && req.session.user.id) {
     // Re-check active status periodically would be ideal; light check:
     const user = User.findById(req.session.user.id);

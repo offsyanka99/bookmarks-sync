@@ -24,7 +24,7 @@ const Bookmark = require('./src/models/Bookmark');
 const API_PORT = Number(process.env.SERVER_PORT) || 31059;
 const ADMIN_PORT = Number(process.env.ADMIN_PORT) || 31060;
 const HOST = process.env.SERVER_HOST || '0.0.0.0';
-// Fail closed in production if SESSION_SECRET is missing/insecure
+// Env SESSION_SECRET, or auto-generated file next to the DB
 const SESSION_SECRET = resolveSessionSecret();
 const publicDir = path.join(__dirname, 'public');
 
@@ -240,8 +240,8 @@ adminApp.use((err, req, res, _next) => {
   res.status(500).type('html').send('<h1>Internal server error</h1>');
 });
 
-// DB + bootstrap + restore log level
-// (bootstrap fails closed in production on weak ADMIN_PASSWORD when creating/resetting)
+// DB + optional env bootstrap + restore log level
+// (no ADMIN_PASSWORD → first-run /setup in admin UI; weak env password fails closed in production)
 getDb();
 bootstrapAdmin();
 loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));

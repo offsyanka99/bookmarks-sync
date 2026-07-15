@@ -11,14 +11,17 @@
 #        mkdir -p /mnt/tank/apps/bookmarks-sync
 #        chown -R 568:568 /mnt/tank/apps/bookmarks-sync
 #      (568 = "apps" user on TrueNAS SCALE; confirm with: id apps)
-#   3. Set ADMIN_PASSWORD (strong, not "admin", min 8 chars in production)
-#   4. Set SESSION_SECRET:  openssl rand -hex 32
-#   5. Adjust host path under volumes: and host ports if needed
+#   3. Adjust host path under volumes: and host ports if needed
+#   4. No ADMIN_PASSWORD / SESSION_SECRET required in this file
 #
-# After deploy:
-#   API  (extensions):  http://NAS-IP:31039
-#   Admin UI:           http://NAS-IP:31040
-#   Extension must use the API port, not the admin port.
+# After deploy (first run):
+#   1. Open Admin UI:  http://NAS-IP:31040
+#   2. You are redirected to /setup — set password for user "admin"
+#   3. Copy the API key shown once, then log in at /login
+#   4. API (extensions): http://NAS-IP:31039  (not the admin port)
+#
+# Optional recovery (if you forget the admin password): set ADMIN_PASSWORD and
+# RESET_ADMIN_PASSWORD=true once, restart, then remove those env vars.
 #
 # Docs: README.md → Docker / TrueNAS · Extension: bookmarks-extension/README.md
 
@@ -31,7 +34,7 @@ services:
     build:
       context: https://github.com/offsyanka99/bookmarks-sync.git#main
     # B) Or use a pre-built image you pushed (comment out build: above):
-    # image: ghcr.io/YOURUSER/bookmarks-sync:1.0.0
+    # image: ghcr.io/YOURUSER/bookmarks-sync:1.1.0
 
     container_name: bookmarks-sync
     restart: unless-stopped
@@ -59,15 +62,14 @@ services:
       SERVER_PORT: "31059"
       ADMIN_PORT: "31060"
 
-      ADMIN_USERNAME: admin
-      # REQUIRED — change these before first start
-      # Docker Compose treats $ as variable expansion!
-      # Prefer no $ in the password, or use TrueNAS UI secrets if available.
-      ADMIN_PASSWORD: "CHANGE_ME_NOW"
-      SESSION_SECRET: "PASTE_OPENSSL_RAND_HEX_32_HERE"
-
-      # false = normal (default). true = one-shot re-apply admin password from env, then set back to false
-      RESET_ADMIN_PASSWORD: "false"
+      # Admin credentials are NOT set here.
+      # First open of the admin UI → /setup → choose password for user "admin".
+      # SESSION_SECRET is auto-generated into the data volume (.session-secret).
+      # Optional overrides (uncomment only if you need them):
+      # ADMIN_USERNAME: admin
+      # ADMIN_PASSWORD: "your-strong-password"   # headless bootstrap; avoid $ in Compose
+      # SESSION_SECRET: "from-openssl-rand-hex-32"
+      # RESET_ADMIN_PASSWORD: "false"
 
       DB_PATH: /app/data/bookmarks.db
       LOG_DIR: /app/data/logs
@@ -93,6 +95,7 @@ services:
     volumes:
       # CHANGE THIS to your TrueNAS dataset path
       # Must be chown 568:568 (TrueNAS apps user — see header) — not root-only
+      # Stores SQLite DB, logs, and auto-generated .session-secret
       - /mnt/tank/apps/bookmarks-sync:/app/data
 
     healthcheck:

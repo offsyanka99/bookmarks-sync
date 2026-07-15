@@ -1,7 +1,13 @@
 const User = require('../models/User');
 const Bookmark = require('../models/Bookmark');
 const { loginPage } = require('../views/login');
+const { setupPage, setupCompletePage } = require('../views/setup');
 const { usersPage } = require('../views/users');
+const { needsSetup } = require('../utils/bootstrap');
+const {
+  getAdminPasswordError,
+  resolveBootstrapAdminUsername,
+} = require('../utils/securityConfig');
 const {
   logger,
   getLogConfig,
@@ -28,8 +34,107 @@ const loginRateLimiter = createRateLimiter({
   keyFn: (req) => `login:${req.ip || req.socket?.remoteAddress || 'unknown'}`,
 });
 
+/** First-run setup shares a similar per-IP budget. */
+const setupRateLimiter = createRateLimiter({
+  windowMs: Number(process.env.LOGIN_RATE_WINDOW_MS) || 15 * 60 * 1000,
+  max: Number(process.env.LOGIN_RATE_MAX) || 20,
+  message: 'Too many setup attempts. Please wait and try again.',
+  keyFn: (req) => `setup:${req.ip || req.socket?.remoteAddress || 'unknown'}`,
+});
+
 const adminController = {
+  showSetup(req, res) {
+    if (!needsSetup()) {
+      return res.redirect('/login');
+    }
+    const username = resolveBootstrapAdminUsername();
+    res.type('html').send(setupPage({ username }));
+  },
+
+  completeSetup(req, res) {
+    if (!needsSetup()) {
+      return res.redirect('/login');
+    }
+
+    const username = resolveBootstrapAdminUsername();
+    const password = String(req.body.password || '');
+    const passwordConfirm = String(req.body.passwordConfirm || '');
+
+    const limited = setupRateLimiter.checkBlocked(req);
+    if (limited.blocked) {
+      res.set('Retry-After', String(limited.retryAfter));
+      logger.warn('Admin setup rate-limited', { ip: req.ip });
+      return res.status(429).type('html').send(
+        setupPage({
+          error: 'Too many setup attempts. Please wait and try again.',
+          username,
+        })
+      );
+    }
+
+    if (password !== passwordConfirm) {
+      setupRateLimiter.recordFailure(req);
+      return res.status(400).type('html').send(
+        setupPage({ error: 'Passwords do not match', username })
+      );
+    }
+
+    const passwordError = getAdminPasswordError(password);
+    if (passwordError) {
+      setupRateLimiter.recordFailure(req);
+      return res.status(400).type('html').send(
+        setupPage({ error: passwordError, username })
+      );
+    }
+
+    // Race: another request may have completed setup
+    if (!needsSetup()) {
+      return res.redirect('/login');
+    }
+
+    try {
+      const admin = User.create({
+        username,
+        password,
+        displayName: 'Administrator',
+        isAdmin: true,
+      });
+      setupRateLimiter.reset(req);
+      logger.info('First-run admin setup completed', {
+        username: admin.username,
+        ip: req.ip,
+      });
+      return res.type('html').send(
+        setupCompletePage({
+          username: admin.username,
+          apiKey: admin.apiKey,
+        })
+      );
+    } catch (err) {
+      setupRateLimiter.recordFailure(req);
+      logger.error('First-run admin setup failed', {
+        err: err.message,
+        ip: req.ip,
+      });
+      const message =
+        err.code === 'CONFLICT'
+          ? 'Admin already exists. Please log in.'
+          : err.code === 'VALIDATION'
+            ? err.message
+            : 'Could not create admin. Try again.';
+      if (err.code === 'CONFLICT') {
+        return res.redirect('/login');
+      }
+      return res.status(400).type('html').send(
+        setupPage({ error: message, username })
+      );
+    }
+  },
+
   showLogin(req, res) {
+    if (needsSetup()) {
+      return res.redirect('/setup');
+    }
     if (req.session?.user?.isAdmin) {
       return res.redirect('/');
     }
@@ -37,6 +142,10 @@ const adminController = {
   },
 
   login(req, res) {
+    if (needsSetup()) {
+      return res.redirect('/setup');
+    }
+
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
 
@@ -110,7 +219,7 @@ const adminController = {
     const username = req.session?.user?.username;
     req.session.destroy(() => {
       logger.info('Admin logout', { username });
-      res.redirect('/login');
+      res.redirect(needsSetup() ? '/setup' : '/login');
     });
   },
 
