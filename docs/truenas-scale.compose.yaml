@@ -61,6 +61,10 @@ services:
 
       ADMIN_USERNAME: admin
       # REQUIRED — change these before first start
+      # Docker Compose treats $ as variable expansion!
+      # Password ($Circuit55!) must be written with $$ for a literal $:
+      #   ADMIN_PASSWORD: "($$Circuit55!)"
+      # Prefer no $ in the password, or use TrueNAS UI secrets if available.
       ADMIN_PASSWORD: "CHANGE_ME_STRONG_PASSWORD"
       SESSION_SECRET: "PASTE_OPENSSL_RAND_HEX_32_HERE"
 
