@@ -10,7 +10,15 @@ function formatDate(iso) {
   return `<time class="local-time" datetime="${escapeHtml(raw)}" data-iso="${escapeHtml(raw)}">${escapeHtml(raw)}</time>`;
 }
 
-function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
+function usersPage({
+  user,
+  users,
+  flash,
+  counts = {},
+  duplicateExtras = {},
+  logConfig = null,
+  sessionMaxAgeMinutes = 15,
+}) {
   const rows = users
     .map((u) => {
       const badge = u.isAdmin
@@ -20,6 +28,7 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
         ? '<span class="badge badge-ok">active</span>'
         : '<span class="badge badge-off">disabled</span>';
       const bmCount = counts[u.id] ?? 0;
+      const dupExtra = duplicateExtras[u.id] ?? 0;
 
       const toggleLabel = u.isActive ? 'Disable' : 'Enable';
       const toggleAction = u.isActive ? 'disable' : 'enable';
@@ -65,11 +74,24 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
               }
             </div>
           </td>
-          <td class="num">${bmCount}</td>
+          <td class="num">
+            ${bmCount}
+            ${
+              dupExtra > 0
+                ? `<div class="muted small" title="Extra copies of the same URL in the same folder">${dupExtra} dup</div>`
+                : ''
+            }
+          </td>
           <td class="muted small">${formatDate(u.createdAt)}</td>
           <td class="actions-cell">
             <div class="actions">
             <a class="btn btn-small" href="/users/${escapeHtml(u.id)}/export" title="Download ZIP of this user’s bookmarks">Export ZIP</a>
+            <form method="post" action="/users/${escapeHtml(u.id)}/dedupe-bookmarks" class="inline form-confirm-action"
+              data-confirm="dedupe-bookmarks"
+              data-username="${escapeHtml(u.username)}"
+              data-count="${dupExtra}">
+              <button type="submit" class="btn btn-small btn-ghost" ${dupExtra === 0 ? 'disabled' : ''} title="Soft-delete same-folder URL duplicates (keep newest)">Dedupe</button>
+            </form>
             <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-confirm-action"
               data-confirm="clear-bookmarks"
               data-username="${escapeHtml(u.username)}"
@@ -191,6 +213,21 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
         · files: ${logConfig?.logToFile === false ? 'off' : 'on'}
         · retention: ${escapeHtml(String(logConfig?.maxFiles || '14d'))}
         · max size: ${escapeHtml(String(logConfig?.maxSize || '20m'))}
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Session</h2>
+      <p class="muted small">
+        Admin portal sessions expire after
+        <strong>${escapeHtml(String(sessionMaxAgeMinutes))}</strong> minutes of idle time
+        (cookie refreshed while you use the UI). Configure with env
+        <code>SESSION_MAX_AGE_MINUTES</code> and restart the server.
+      </p>
+      <p class="muted small" style="margin-top:0.5rem">
+        <strong>Duplicates:</strong> same URL in the same folder. The
+        <em>Dedupe</em> action soft-deletes extras and keeps the newest copy.
+        Same URL in different folders is allowed (not considered a duplicate).
       </p>
     </section>
 
@@ -425,6 +462,28 @@ function usersPage({ user, users, flash, counts = {}, logConfig = null }) {
             );
             fallback =
               'Regenerate API key for "' + username + '"? The old key will stop working.';
+          } else if (kind === 'dedupe-bookmarks') {
+            title = 'Dedupe bookmarks?';
+            okLabel = 'Soft-delete duplicates';
+            danger = false;
+            warning = 'Extra copies are soft-deleted; the newest of each folder+URL pair is kept.';
+            appendText(messageEl, 'Remove folder-scoped URL duplicates for ');
+            appendStrong(messageEl, username);
+            appendText(messageEl, '?');
+            appendBr(messageEl);
+            appendBr(messageEl);
+            appendText(messageEl, 'About ');
+            appendStrong(messageEl, String(count));
+            appendText(
+              messageEl,
+              ' extra bookmark(s) will be soft-deleted. Same URL in different folders is left alone.'
+            );
+            fallback =
+              'Dedupe bookmarks for "' +
+              username +
+              '"? Soft-delete about ' +
+              count +
+              ' extra same-folder URL copy/copies (keep newest).';
           } else {
             appendText(messageEl, 'Are you sure?');
             fallback = 'Are you sure?';

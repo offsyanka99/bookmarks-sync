@@ -62,6 +62,34 @@ export function itemSignature(b) {
   ].join('\0');
 }
 
+/**
+ * Normalize URL for same-folder duplicate matching (aligns with server normalizeUrl).
+ * @param {string|null|undefined} url
+ * @returns {string}
+ */
+export function normalizeUrl(url) {
+  if (url == null) return '';
+  const raw = String(url).trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).href;
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * True when two bookmark URLs should be treated as the same target.
+ * @param {string|null|undefined} a
+ * @param {string|null|undefined} b
+ */
+export function urlsMatch(a, b) {
+  const na = normalizeUrl(a);
+  const nb = normalizeUrl(b);
+  if (!na || !nb) return false;
+  return na === nb;
+}
+
 export function classifyRootNode(node) {
   if (!node) return null;
   const id = String(node.id);

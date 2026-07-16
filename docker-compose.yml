@@ -14,6 +14,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Optional: override; if empty, auto-generated under /app/data/.session-secret
       SESSION_SECRET: ${SESSION_SECRET:-}
+      # Admin session idle timeout in minutes (rolling cookie; default 15)
+      SESSION_MAX_AGE_MINUTES: ${SESSION_MAX_AGE_MINUTES:-15}
       DB_PATH: /app/data/bookmarks.db
       STATUS_MESSAGE: ${STATUS_MESSAGE:-Bookmarks Sync service is online}
       ALLOW_NEW_SYNCS: ${ALLOW_NEW_SYNCS:-true}

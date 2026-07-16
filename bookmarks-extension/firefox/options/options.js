@@ -14,6 +14,7 @@ import { browserLabel, BTN_SHOW_KEY, BTN_HIDE_KEY } from '../lib/uiStrings.js';
 
 const form = document.getElementById('form');
 const msg = document.getElementById('msg');
+const testResult = document.getElementById('test-result');
 const btnToggleKey = document.getElementById('btn-toggle-key');
 const btnTest = document.getElementById('btn-test');
 const apiKeyInput = document.getElementById('apiKey');
@@ -25,6 +26,25 @@ function showMsg(text, kind) {
   msg.textContent = text || '';
   msg.classList.remove('ok', 'error');
   if (kind) msg.classList.add(kind);
+}
+
+/** Connection probe result sits under Test connection (always in view). */
+function showTestResult(text, kind) {
+  if (!testResult) {
+    showMsg(text, kind);
+    return;
+  }
+  testResult.hidden = !text;
+  testResult.textContent = text || '';
+  testResult.classList.remove('ok', 'error');
+  if (kind) testResult.classList.add(kind);
+  if (text && testResult.scrollIntoView) {
+    try {
+      testResult.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 function updateIntervalVisibility() {
@@ -113,6 +133,7 @@ async function load() {
   form.syncIntervalMinutes.value = String(s.syncIntervalMinutes || 15);
   form.syncRoot.value = s.syncRoot || 'other';
   form.removeLocalMissing.checked = s.removeLocalMissing !== false;
+  form.matchByUrl.checked = s.matchByUrl !== false;
   form.destructiveFailsafe.checked = s.destructiveFailsafe !== false;
   form.destructiveFailsafePercent.value = String(s.destructiveFailsafePercent || 50);
 
@@ -136,6 +157,7 @@ form.destructiveFailsafe.addEventListener('change', updateFailsafeVisibility);
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   showMsg('');
+  showTestResult('');
 
   let apiBaseUrl;
   let apiKey;
@@ -167,6 +189,7 @@ form.addEventListener('submit', async (e) => {
       strategy: selectedStrategy(),
       syncRoot: form.syncRoot.value === 'toolbar' ? 'toolbar' : 'other',
       removeLocalMissing: form.removeLocalMissing.checked,
+      matchByUrl: form.matchByUrl.checked,
       destructiveFailsafe: form.destructiveFailsafe.checked,
       destructiveFailsafePercent: failsafePct,
     });
@@ -185,14 +208,15 @@ btnToggleKey.addEventListener('click', () => {
 });
 
 btnTest.addEventListener('click', async () => {
-  showMsg('Testing…');
+  showMsg('');
+  showTestResult('Testing…');
 
   let apiBaseUrl;
   let apiKey;
   try {
     ({ apiBaseUrl, apiKey } = readServerFields());
   } catch (err) {
-    showMsg(err?.message || 'API base URL is not a valid URL.', 'error');
+    showTestResult(err?.message || 'API base URL is not a valid URL.', 'error');
     return;
   }
 
@@ -204,7 +228,7 @@ btnTest.addEventListener('click', async () => {
 
     // Probe from this page first (where the permission was just granted)
     const report = await runConnectionTestInPage(apiBaseUrl, apiKey);
-    showMsg(report, 'ok');
+    showTestResult(report, 'ok');
 
     // Also notify background so it warms up with the same settings
     try {
@@ -214,7 +238,7 @@ btnTest.addEventListener('click', async () => {
       console.debug('[bookmarks-sync:options] background test failed', String(err));
     }
   } catch (err) {
-    showMsg(err?.message || String(err), 'error');
+    showTestResult(err?.message || String(err), 'error');
   }
 });
 

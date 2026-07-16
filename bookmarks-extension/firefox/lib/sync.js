@@ -277,9 +277,13 @@ async function runMergeStrategy(settings, opts = {}) {
     pushFullyApplied &&
     (serverResult.conflicts || []).length === 0;
 
+  // Server may have merged client UUIDs into existing folder+url rows
+  nextMap = applyServerMerges(nextMap, serverResult.merges);
+
   const apply = await applyServerBookmarks(serverResult.bookmarks || [], nextMap, {
     syncRoot: settings.syncRoot,
     removeLocalMissing,
+    matchByUrl: settings.matchByUrl !== false,
   });
 
   nextMap = apply.idMap;
@@ -293,7 +297,38 @@ async function runMergeStrategy(settings, opts = {}) {
   });
   result._snapshot = snapshotFromServerBookmarks(serverResult.bookmarks || []);
   result.localChanged = payload.filter((p) => p._changed).length;
+  result.server.merged = serverResult.merged || 0;
   return result;
+}
+
+/**
+ * Remap local→server ids when the server merged a client UUID into an existing row.
+ * @param {{ localToServer: object, serverToLocal: object }} idMap
+ * @param {{ clientId: string, serverId: string }[]|undefined} merges
+ */
+function applyServerMerges(idMap, merges) {
+  if (!Array.isArray(merges) || merges.length === 0) return idMap;
+  const localToServer = { ...idMap.localToServer };
+  const serverToLocal = { ...idMap.serverToLocal };
+
+  for (const m of merges) {
+    if (!m?.clientId || !m?.serverId || m.clientId === m.serverId) continue;
+    const localId = serverToLocal[m.clientId];
+    if (localId) {
+      localToServer[localId] = m.serverId;
+      serverToLocal[m.serverId] = localId;
+      delete serverToLocal[m.clientId];
+    }
+    // Drop reverse map for the discarded client id if present
+    for (const [lid, sid] of Object.entries(localToServer)) {
+      if (sid === m.clientId) {
+        localToServer[lid] = m.serverId;
+        serverToLocal[m.serverId] = lid;
+      }
+    }
+  }
+
+  return { localToServer, serverToLocal };
 }
 
 async function runDownloadStrategy(settings, opts = {}) {
@@ -333,6 +368,7 @@ async function runDownloadStrategy(settings, opts = {}) {
     {
       syncRoot: settings.syncRoot,
       removeLocalMissing: false, // already wiped
+      matchByUrl: false, // clean tree; no local siblings to match
     }
   );
   await saveIdMap(apply.idMap);
@@ -422,10 +458,11 @@ async function runUploadStrategy(settings, opts = {}) {
     confirmDestructive: Boolean(opts.confirmDestructive),
   });
 
-  let nextMap = mapAfterPushPrep;
+  let nextMap = applyServerMerges(mapAfterPushPrep, serverResult.merges);
   const apply = await applyServerBookmarks(serverResult.bookmarks || [], nextMap, {
     syncRoot: settings.syncRoot,
     removeLocalMissing: opts.removeLocalMissing === true,
+    matchByUrl: settings.matchByUrl !== false,
   });
 
   nextMap = apply.idMap;
@@ -456,6 +493,7 @@ function buildResult({ local, serverResult, apply, lastSyncAt }) {
       unchanged: serverResult.unchanged,
       skipped: serverResult.skipped,
       deleted: serverResult.deleted,
+      merged: serverResult.merged || 0,
       conflicts: (serverResult.conflicts || []).length,
       count: serverResult.count,
     },
@@ -468,5 +506,6 @@ function buildResult({ local, serverResult, apply, lastSyncAt }) {
     },
     lastSyncAt,
     conflicts: serverResult.conflicts || [],
+    merges: serverResult.merges || [],
   };
 }

@@ -17,6 +17,7 @@ const {
 } = require('../utils/logger');
 const { createRateLimiter } = require('../utils/rateLimit');
 const { zipStore } = require('../utils/zipStore');
+const { resolveSessionMaxAgeMinutes } = require('../utils/securityConfig');
 
 function takeFlash(req) {
   const flash = req.session.flash || null;
@@ -228,8 +229,11 @@ const adminController = {
   listUsers(req, res) {
     const users = User.findAll();
     const counts = {};
+    const duplicateExtras = {};
     for (const u of users) {
       counts[u.id] = Bookmark.countForUser(u.id);
+      const dup = Bookmark.findDuplicates(u.id);
+      duplicateExtras[u.id] = dup.extraCount;
     }
     res.type('html').send(
       usersPage({
@@ -237,7 +241,9 @@ const adminController = {
         users,
         flash: takeFlash(req),
         counts,
+        duplicateExtras,
         logConfig: getLogConfig(),
+        sessionMaxAgeMinutes: resolveSessionMaxAgeMinutes(),
       })
     );
   },
@@ -467,6 +473,46 @@ const adminController = {
       setFlash(req, 'error', 'Failed to export all bookmarks');
       res.redirect('/');
     }
+  },
+
+  /**
+   * Soft-delete folder-scoped URL duplicates for one user (keep newest).
+   * POST /users/:id/dedupe-bookmarks
+   */
+  dedupeUserBookmarks(req, res) {
+    try {
+      const target = User.findById(req.params.id);
+      if (!target) {
+        setFlash(req, 'error', 'User not found');
+        return res.redirect('/');
+      }
+
+      const result = Bookmark.dedupeByFolderUrl(target.id, { dryRun: false });
+      logger.info('Admin deduped user bookmarks', {
+        userId: target.id,
+        username: target.username,
+        groupCount: result.groupCount,
+        removedCount: result.removedCount,
+        by: req.user?.username,
+      });
+      if (result.removedCount === 0) {
+        setFlash(
+          req,
+          'success',
+          `No folder-scoped URL duplicates for "${target.username}".`
+        );
+      } else {
+        setFlash(
+          req,
+          'success',
+          `Deduped "${target.username}": soft-deleted ${result.removedCount} duplicate bookmark(s) across ${result.groupCount} group(s). Kept the newest of each folder+URL pair.`
+        );
+      }
+    } catch (err) {
+      logger.error('dedupeUserBookmarks failed', { err: err.message, stack: err.stack });
+      setFlash(req, 'error', 'Failed to dedupe bookmarks');
+    }
+    res.redirect('/');
   },
 
   /**

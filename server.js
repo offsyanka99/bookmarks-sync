@@ -16,7 +16,11 @@ const {
   getLogConfig,
   LOG_DIR,
 } = require('./src/utils/logger');
-const { resolveSessionSecret } = require('./src/utils/securityConfig');
+const {
+  resolveSessionSecret,
+  resolveSessionMaxAgeMs,
+  resolveSessionMaxAgeMinutes,
+} = require('./src/utils/securityConfig');
 const bookmarksRouter = require('./src/routes/bookmarks');
 const adminRouter = require('./src/routes/admin');
 const Bookmark = require('./src/models/Bookmark');
@@ -212,17 +216,21 @@ applyTrustProxy(adminApp);
 adminApp.use(createHelmet());
 adminApp.use(morgan(morganFormat, { stream: morganStream }));
 adminApp.use(express.urlencoded({ extended: false }));
+// Admin session lifetime via SESSION_MAX_AGE_MINUTES (default 15). rolling: true
+// refreshes the cookie on each request so active admins are not logged out mid-work.
+const SESSION_MAX_AGE_MS = resolveSessionMaxAgeMs();
 adminApp.use(
   session({
     name: 'bms.sid',
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    rolling: true,
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
       secure: process.env.COOKIE_SECURE === 'true',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: SESSION_MAX_AGE_MS,
     },
   })
 );
@@ -270,6 +278,7 @@ const adminServer = adminApp.listen(ADMIN_PORT, HOST, () => {
     url: `http://${publicHost}:${publicAdminPort}/`,
     port: ADMIN_PORT,
     bind: `${HOST}:${ADMIN_PORT}`,
+    sessionMaxAgeMinutes: resolveSessionMaxAgeMinutes(),
   });
   logger.info('Runtime paths', {
     database: dbPath,

@@ -205,6 +205,15 @@ select {
   margin: 0.5rem 0 1rem;
 }
 
+/* Test connection feedback sits directly under the action buttons */
+.test-result {
+  margin: -0.35rem 0 1.25rem;
+}
+
+.form-actions + .msg {
+  margin-top: 0;
+}
+
 .btn {
   appearance: none;
   border: 1px solid var(--border);

@@ -12,6 +12,9 @@ router.post('/', bookmarkController.create);
 router.post('/sync', bookmarkController.sync);
 router.get('/export', bookmarkController.exportAll);
 router.post('/import', bookmarkController.importAll);
+// Static paths before /:id
+router.get('/duplicates', bookmarkController.listDuplicates);
+router.post('/dedupe', bookmarkController.dedupe);
 
 router.get('/:id', bookmarkController.getById);
 router.put('/:id', bookmarkController.update);

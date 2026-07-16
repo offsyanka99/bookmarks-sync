@@ -47,6 +47,54 @@ function tsMs(iso) {
   return Number.isFinite(t) ? t : 0;
 }
 
+/**
+ * Normalize URL for duplicate detection (folder-scoped).
+ * Uses WHATWG URL when possible so equivalent forms compare equal.
+ */
+function normalizeUrl(url) {
+  if (url == null) return '';
+  const raw = String(url).trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).href;
+  } catch {
+    return raw;
+  }
+}
+
+/** True when this row is a real URL bookmark (not a folder / __dir__ placeholder). */
+function isUrlBookmarkLike({ url, tags } = {}) {
+  const tagsArr = parseTags(tags);
+  if (tagsArr.includes('__dir__')) return false;
+  const u = url == null ? '' : String(url).trim();
+  if (!u) return false;
+  if (u.startsWith('folder:')) return false;
+  return true;
+}
+
+/**
+ * Prefer keeper: newest updatedAt, then lowest position, then oldest createdAt, then id.
+ * @param {object} a
+ * @param {object} b
+ * @returns {number} negative if a should rank before b
+ */
+function compareKeeperRank(a, b) {
+  const ua = tsMs(a.updatedAt);
+  const ub = tsMs(b.updatedAt);
+  if (ua !== ub) return ub - ua; // newer first
+  const pa = Number(a.position) || 0;
+  const pb = Number(b.position) || 0;
+  if (pa !== pb) return pa - pb; // lower position first
+  const ca = tsMs(a.createdAt);
+  const cb = tsMs(b.createdAt);
+  if (ca !== cb) return ca - cb; // older first
+  return String(a.id).localeCompare(String(b.id));
+}
+
+function duplicateKey(folder, url) {
+  return `${String(folder ?? '')}\0${normalizeUrl(url)}`;
+}
+
 const SELECT_COLS = `
   id, user_id, title, url, folder, tags, notes, favicon, position,
   created_at, updated_at, deleted_at
@@ -100,7 +148,150 @@ class Bookmark {
     return rowToBookmark(row);
   }
 
-  static create(userId, data) {
+  /**
+   * Find an active URL bookmark with the same folder + normalized URL.
+   * Folder rows and empty URLs are ignored.
+   * @param {string} userId
+   * @param {string} folder
+   * @param {string} url
+   * @param {{ excludeId?: string }} [opts]
+   */
+  static findActiveByFolderUrl(userId, folder, url, { excludeId = null } = {}) {
+    userId = requireUserId(userId);
+    if (!isUrlBookmarkLike({ url, tags: [] })) return null;
+
+    const folderKey = folder ?? '';
+    const target = normalizeUrl(url);
+    if (!target) return null;
+
+    // Narrow by folder + non-empty url, then normalize in JS (SQLite has no URL() ).
+    const db = getDb();
+    const rows = db
+      .prepare(
+        `SELECT ${SELECT_COLS} FROM bookmarks
+         WHERE user_id = ?
+           AND deleted_at IS NULL
+           AND folder = ?
+           AND url IS NOT NULL
+           AND TRIM(url) != ''
+           AND (tags IS NULL OR tags NOT LIKE '%"__dir__"%')
+         ORDER BY updated_at DESC, position ASC, created_at ASC, id ASC`
+      )
+      .all(userId, folderKey);
+
+    for (const row of rows) {
+      if (excludeId && row.id === excludeId) continue;
+      if (!isUrlBookmarkLike(rowToBookmark(row))) continue;
+      if (normalizeUrl(row.url) === target) {
+        return rowToBookmark(row);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * List folder-scoped URL duplicates for a user.
+   * A group is the same (folder, normalizedUrl) with count ≥ 2.
+   * @returns {{ groups: object[], groupCount: number, extraCount: number }}
+   */
+  static findDuplicates(userId) {
+    userId = requireUserId(userId);
+    const all = this.findAll(userId, { includeDeleted: false });
+    /** @type {Map<string, object[]>} */
+    const map = new Map();
+
+    for (const b of all) {
+      if (!isUrlBookmarkLike(b)) continue;
+      const key = duplicateKey(b.folder, b.url);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(b);
+    }
+
+    const groups = [];
+    let extraCount = 0;
+    for (const items of map.values()) {
+      if (items.length < 2) continue;
+      items.sort(compareKeeperRank);
+      extraCount += items.length - 1;
+      groups.push({
+        folder: items[0].folder ?? '',
+        url: normalizeUrl(items[0].url),
+        count: items.length,
+        keepId: items[0].id,
+        bookmarks: items,
+      });
+    }
+
+    groups.sort((a, b) => {
+      if (a.folder !== b.folder) return String(a.folder).localeCompare(String(b.folder));
+      return String(a.url).localeCompare(String(b.url));
+    });
+
+    return {
+      groups,
+      groupCount: groups.length,
+      extraCount,
+    };
+  }
+
+  /**
+   * Soft-delete extras in each folder+url group (keep best-ranked row).
+   * @param {string} userId
+   * @param {{ dryRun?: boolean }} [opts]
+   */
+  static dedupeByFolderUrl(userId, { dryRun = false } = {}) {
+    userId = requireUserId(userId);
+    const { groups, groupCount, extraCount } = this.findDuplicates(userId);
+    const removed = [];
+    const kept = [];
+
+    const run = () => {
+      for (const g of groups) {
+        const [keeper, ...extras] = g.bookmarks;
+        kept.push({ id: keeper.id, folder: g.folder, url: g.url });
+        for (const extra of extras) {
+          if (!dryRun) {
+            const result = this.softDelete(userId, extra.id, { force: true });
+            if (result.ok) {
+              removed.push({
+                id: extra.id,
+                folder: g.folder,
+                url: g.url,
+                title: extra.title,
+                keptId: keeper.id,
+              });
+            }
+          } else {
+            removed.push({
+              id: extra.id,
+              folder: g.folder,
+              url: g.url,
+              title: extra.title,
+              keptId: keeper.id,
+            });
+          }
+        }
+      }
+    };
+
+    if (dryRun) {
+      run();
+    } else {
+      const db = getDb();
+      db.transaction(run)();
+    }
+
+    return {
+      dryRun: Boolean(dryRun),
+      groupCount,
+      extraCount,
+      removedCount: removed.length,
+      kept,
+      removed,
+    };
+  }
+
+  static create(userId, data, { mergeDuplicates = false } = {}) {
     userId = requireUserId(userId);
     const db = getDb();
     const id = data.id || uuidv4();
@@ -115,6 +306,53 @@ class Bookmark {
           code: 'CONFLICT',
           reason: 'id_exists',
           server: existing,
+        };
+      }
+    }
+
+    const folder = data.folder ?? '';
+    const url = data.url ?? '';
+    const tags = data.tags;
+    // Folder-scoped URL twin: merge (update existing) or conflict
+    if (isUrlBookmarkLike({ url, tags })) {
+      const twin = this.findActiveByFolderUrl(userId, folder, url);
+      if (twin) {
+        if (mergeDuplicates) {
+          const result = this.update(
+            userId,
+            twin.id,
+            {
+              title: data.title !== undefined ? data.title : twin.title,
+              url: data.url !== undefined ? data.url : twin.url,
+              folder: data.folder !== undefined ? data.folder : twin.folder,
+              tags: data.tags !== undefined ? data.tags : twin.tags,
+              notes: data.notes !== undefined ? data.notes : twin.notes,
+              favicon: data.favicon !== undefined ? data.favicon : twin.favicon,
+              position:
+                data.position !== undefined && Number.isFinite(data.position)
+                  ? data.position
+                  : twin.position,
+              updatedAt: twin.updatedAt,
+            },
+            { force: true }
+          );
+          if (result.ok) {
+            return {
+              ok: true,
+              merged: true,
+              clientId: data.id || null,
+              bookmark: result.bookmark,
+            };
+          }
+        }
+        return {
+          ok: false,
+          code: 'CONFLICT',
+          reason: 'duplicate_url',
+          message:
+            'An active bookmark with the same folder and URL already exists. ' +
+            'Pass merge=true to update it, or change folder/url.',
+          server: twin,
         };
       }
     }
@@ -310,7 +548,7 @@ class Bookmark {
 
   /**
    * Sync from client:
-   * - create if missing
+   * - create if missing (or merge into same folder+url twin when ids differ)
    * - update if client updatedAt is newer than server
    * - skip if server is newer (reported in conflicts)
    * - equal updatedAt → unchanged
@@ -319,7 +557,7 @@ class Bookmark {
   static syncFromClient(
     userId,
     bookmarks,
-    { replace = false, lastSyncAt = null, force = false } = {}
+    { replace = false, lastSyncAt = null, force = false, mergeDuplicates = true } = {}
   ) {
     userId = requireUserId(userId);
     const db = getDb();
@@ -366,11 +604,83 @@ class Bookmark {
       unchanged: 0,
       skipped: 0,
       deleted: 0,
+      merged: 0,
     };
     const conflicts = [];
+    /** @type {{ clientId: string, serverId: string, folder: string, url: string }[]} */
+    const merges = [];
+
+    /**
+     * Apply update rules against an existing row (by resolved id).
+     * Mutates payload.id to the resolved server id.
+     */
+    const applyAgainstExisting = (existing, payload, item, clientUpdatedAt) => {
+      payload.id = existing.id;
+
+      if (existing.userId !== userId) {
+        conflicts.push({
+          id: existing.id,
+          reason: 'not_owned',
+          server: existing,
+          client: item,
+        });
+        stats.skipped += 1;
+        return;
+      }
+
+      const resurrecting = Boolean(existing.deletedAt) && !payload.deleted_at;
+
+      if (force) {
+        updateRow.run(payload);
+        stats.updated += 1;
+        return;
+      }
+
+      const clientMs = tsMs(clientUpdatedAt);
+      const serverMs = tsMs(existing.updatedAt);
+
+      const contentChanged =
+        String(existing.title || '') !== String(payload.title || '') ||
+        String(existing.url || '') !== String(payload.url || '') ||
+        String(existing.folder || '') !== String(payload.folder || '') ||
+        Number(existing.position) !== Number(payload.position) ||
+        String(existing.notes || '') !== String(payload.notes || '') ||
+        serializeTags(existing.tags) !== String(payload.tags || '[]') ||
+        String(existing.favicon || '') !== String(payload.favicon || '') ||
+        resurrecting;
+
+      if (clientMs > serverMs) {
+        updateRow.run(payload);
+        stats.updated += 1;
+      } else if (clientMs < serverMs) {
+        conflicts.push({
+          id: existing.id,
+          reason: 'server_newer',
+          server: existing,
+          client: {
+            id: item.id || existing.id,
+            title: item.title,
+            url: item.url,
+            folder: item.folder,
+            position: item.position,
+            updatedAt: clientUpdatedAt,
+          },
+        });
+        stats.skipped += 1;
+      } else if (contentChanged) {
+        // Same timestamp but order/folder/title/url differ — still apply (reorder case)
+        updateRow.run({ ...payload, updated_at: ts });
+        stats.updated += 1;
+      } else {
+        stats.unchanged += 1;
+      }
+    };
 
     const run = db.transaction((items) => {
       const ids = [];
+      // Within one payload, track folder+url → first server id so batch dups collapse
+      /** @type {Map<string, string>} */
+      const batchUrlIndex = new Map();
 
       for (const item of items) {
         // Allow folder rows (empty url + __dir__ tag) and normal URL bookmarks
@@ -390,9 +700,7 @@ class Bookmark {
         if (!item.url && !item.id && !isDir) continue;
         if (isDir && !item.title && !item.id) continue;
 
-        const id = item.id || uuidv4();
-        ids.push(id);
-
+        let id = item.id || uuidv4();
         const clientUpdatedAt = item.updatedAt || ts;
         const payload = {
           id,
@@ -409,7 +717,43 @@ class Bookmark {
           deleted_at: item.deletedAt ?? null,
         };
 
-        const existing = this.findById(userId, id, { includeDeleted: true });
+        let existing = this.findById(userId, id, { includeDeleted: true });
+
+        // Folder-scoped URL merge: client id is new but same folder+url already exists
+        if (
+          !existing &&
+          mergeDuplicates &&
+          !isDir &&
+          isUrlBookmarkLike({ url: payload.url, tags: tagsArr })
+        ) {
+          const key = duplicateKey(payload.folder, payload.url);
+          let twinId = batchUrlIndex.get(key);
+          let twin = twinId
+            ? this.findById(userId, twinId, { includeDeleted: true })
+            : this.findActiveByFolderUrl(userId, payload.folder, payload.url);
+
+          if (twin) {
+            merges.push({
+              clientId: id,
+              serverId: twin.id,
+              folder: payload.folder,
+              url: normalizeUrl(payload.url),
+            });
+            stats.merged += 1;
+            applyAgainstExisting(twin, payload, item, clientUpdatedAt);
+            ids.push(twin.id);
+            batchUrlIndex.set(key, twin.id);
+            continue;
+          }
+          batchUrlIndex.set(key, id);
+        } else if (
+          existing &&
+          mergeDuplicates &&
+          !isDir &&
+          isUrlBookmarkLike({ url: payload.url, tags: tagsArr })
+        ) {
+          batchUrlIndex.set(duplicateKey(payload.folder, payload.url), existing.id);
+        }
 
         if (!existing) {
           insert.run({
@@ -418,76 +762,22 @@ class Bookmark {
             updated_at: clientUpdatedAt,
           });
           stats.created += 1;
+          ids.push(id);
           continue;
         }
 
-        // Wrong owner edge case (same id globally — should not happen with UUIDs)
-        if (existing.userId !== userId) {
-          conflicts.push({
-            id,
-            reason: 'not_owned',
-            server: existing,
-            client: item,
-          });
-          stats.skipped += 1;
-          continue;
-        }
-
-        // Soft-deleted on server + client wants it active → treat as restore when client is not older
-        const resurrecting = Boolean(existing.deletedAt) && !payload.deleted_at;
-
-        if (force) {
-          updateRow.run(payload);
-          stats.updated += 1;
-          continue;
-        }
-
-        const clientMs = tsMs(clientUpdatedAt);
-        const serverMs = tsMs(existing.updatedAt);
-
-        const contentChanged =
-          String(existing.title || '') !== String(payload.title || '') ||
-          String(existing.url || '') !== String(payload.url || '') ||
-          String(existing.folder || '') !== String(payload.folder || '') ||
-          Number(existing.position) !== Number(payload.position) ||
-          String(existing.notes || '') !== String(payload.notes || '') ||
-          serializeTags(existing.tags) !== String(payload.tags || '[]') ||
-          String(existing.favicon || '') !== String(payload.favicon || '') ||
-          resurrecting;
-
-        if (clientMs > serverMs) {
-          updateRow.run(payload);
-          stats.updated += 1;
-        } else if (clientMs < serverMs) {
-          conflicts.push({
-            id,
-            reason: 'server_newer',
-            server: existing,
-            client: {
-              id,
-              title: item.title,
-              url: item.url,
-              folder: item.folder,
-              position: item.position,
-              updatedAt: clientUpdatedAt,
-            },
-          });
-          stats.skipped += 1;
-        } else if (contentChanged) {
-          // Same timestamp but order/folder/title/url differ — still apply (reorder case)
-          updateRow.run({ ...payload, updated_at: ts });
-          stats.updated += 1;
-        } else {
-          stats.unchanged += 1;
-        }
+        applyAgainstExisting(existing, payload, item, clientUpdatedAt);
+        ids.push(existing.id);
       }
 
       // Replace membership: never run on empty payload (would wipe the whole library).
       // When replace=true with a non-empty client set, always soft-delete server rows
       // not in that set — otherwise a client with a fresh ID map doubles the library
       // (creates N new rows, leaves the previous N active).
+      // ids may contain duplicates after merges — unique for membership.
       if (replace && ids.length > 0) {
-        const idsJson = JSON.stringify(ids);
+        const uniqueIds = [...new Set(ids)];
+        const idsJson = JSON.stringify(uniqueIds);
         let result;
         if (lastSyncAt && !force) {
           // Safe: do not delete rows updated on server after client last synced
@@ -516,6 +806,8 @@ class Bookmark {
       unchanged: stats.unchanged,
       skipped: stats.skipped,
       deleted: stats.deleted,
+      merged: stats.merged,
+      merges,
       conflicts,
       bookmarks: this.findAll(userId, { includeDeleted: false }),
     };
@@ -631,3 +923,5 @@ class Bookmark {
 }
 
 module.exports = Bookmark;
+module.exports.normalizeUrl = normalizeUrl;
+module.exports.isUrlBookmarkLike = isUrlBookmarkLike;

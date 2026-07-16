@@ -198,6 +198,35 @@ function resolveBootstrapAdminUsername() {
   return (process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase() || 'admin';
 }
 
+/** Default admin session idle lifetime (minutes). Overridable via SESSION_MAX_AGE_MINUTES. */
+const DEFAULT_SESSION_MAX_AGE_MINUTES = 15;
+
+/**
+ * Admin session cookie max-age in minutes.
+ * Best practice for ops: set via env (restart to apply), not a runtime UI toggle.
+ * @returns {number}
+ */
+function resolveSessionMaxAgeMinutes() {
+  const raw = process.env.SESSION_MAX_AGE_MINUTES;
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return DEFAULT_SESSION_MAX_AGE_MINUTES;
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    return DEFAULT_SESSION_MAX_AGE_MINUTES;
+  }
+  // Cap at 30 days to avoid accidental multi-year cookies
+  return Math.min(Math.floor(n), 30 * 24 * 60);
+}
+
+/**
+ * Admin session cookie max-age in milliseconds.
+ * @returns {number}
+ */
+function resolveSessionMaxAgeMs() {
+  return resolveSessionMaxAgeMinutes() * 60 * 1000;
+}
+
 module.exports = {
   isProduction,
   isInsecureSessionSecret,
@@ -208,6 +237,9 @@ module.exports = {
   assertAdminPasswordSafe,
   resolveBootstrapAdminPassword,
   resolveBootstrapAdminUsername,
+  resolveSessionMaxAgeMinutes,
+  resolveSessionMaxAgeMs,
+  DEFAULT_SESSION_MAX_AGE_MINUTES,
   MIN_SESSION_SECRET_LENGTH,
   MIN_PROD_ADMIN_PASSWORD_LENGTH,
   INSECURE_SESSION_SECRETS,

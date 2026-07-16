@@ -11,6 +11,7 @@ import {
   decodeFolder,
   isDirEntry,
   itemSignature,
+  urlsMatch,
   parentIdForRoot,
   parentDepth,
   msToIso,
@@ -107,6 +108,7 @@ export function snapshotFromServerBookmarks(serverBookmarks) {
  * @param {{
  *   syncRoot?: string,
  *   removeLocalMissing?: boolean,
+ *   matchByUrl?: boolean,
  *   yieldEvery?: number,
  * }} options
  */
@@ -115,6 +117,7 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     Number.isFinite(Number(options.yieldEvery)) && Number(options.yieldEvery) > 0
       ? Number(options.yieldEvery)
       : DEFAULT_YIELD_EVERY;
+  const matchByUrl = options.matchByUrl !== false;
 
   const roots = await getRootIds();
   const defaultRootKind = options.syncRoot === 'toolbar' ? 'toolbar' : 'other';
@@ -317,6 +320,26 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
         node = null;
         delete serverToLocal[sb.id];
         if (localToServer[localId] === sb.id) delete localToServer[localId];
+      }
+    }
+
+    // Fallback: reuse an existing local sibling with the same URL (avoid duplicates)
+    if (!node && matchByUrl && sb.url) {
+      try {
+        const kids = await chrome.bookmarks.getChildren(parentId);
+        const hit = kids.find((c) => c.url && urlsMatch(c.url, sb.url));
+        if (hit) {
+          node = hit;
+          const prevServer = localToServer[String(hit.id)];
+          if (prevServer && prevServer !== sb.id && serverToLocal[prevServer] === String(hit.id)) {
+            delete serverToLocal[prevServer];
+          }
+        }
+      } catch (err) {
+        debugWarn('treeApply', 'url match-by-url scan failed', {
+          parentId,
+          err: String(err),
+        });
       }
     }
 

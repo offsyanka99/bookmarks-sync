@@ -13,6 +13,7 @@
 #      (568 = "apps" user on TrueNAS SCALE; confirm with: id apps)
 #   3. Adjust host path under volumes: and host ports if needed
 #   4. No ADMIN_PASSWORD / SESSION_SECRET required in this file
+#   5. Optional: SESSION_MAX_AGE_MINUTES (admin idle timeout, default 15)
 #
 # After deploy (first run):
 #   1. Open Admin UI:  http://NAS-IP:31040
@@ -34,7 +35,7 @@ services:
     build:
       context: https://github.com/offsyanka99/bookmarks-sync.git#main
     # B) Or use a pre-built image you pushed (comment out build: above):
-    # image: ghcr.io/YOURUSER/bookmarks-sync:1.1.0
+    # image: ghcr.io/YOURUSER/bookmarks-sync:1.2.1
 
     container_name: bookmarks-sync
     restart: unless-stopped
@@ -74,6 +75,10 @@ services:
       # ADMIN_PASSWORD: "your-strong-password"   # headless bootstrap; avoid $ in Compose
       # SESSION_SECRET: "from-openssl-rand-hex-32"
       # RESET_ADMIN_PASSWORD: "false"
+
+      # Admin session idle timeout (minutes). Cookie is rolling while the UI is used.
+      # Raise (e.g. "60") if 15 minutes is too short for your workflow.
+      SESSION_MAX_AGE_MINUTES: "15"
 
       DB_PATH: /app/data/bookmarks.db
       LOG_DIR: /app/data/logs

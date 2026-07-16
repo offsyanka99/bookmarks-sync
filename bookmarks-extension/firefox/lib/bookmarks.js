@@ -16,6 +16,8 @@ export {
   decodeFolder,
   isDirEntry,
   itemSignature,
+  normalizeUrl,
+  urlsMatch,
   classifyRootNode,
   parentIdForRoot,
   parentDepth,

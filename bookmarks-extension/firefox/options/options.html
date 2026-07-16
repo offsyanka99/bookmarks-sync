@@ -50,6 +50,8 @@
           <button type="button" class="btn btn-ghost" id="btn-toggle-key">Show key</button>
           <button type="button" class="btn btn-ghost" id="btn-test">Test connection</button>
         </div>
+        <!-- Inline result next to the action (not at the bottom of a long form) -->
+        <p class="msg test-result" id="test-result" role="status" aria-live="polite" hidden></p>
 
         <h2>Sync behaviour</h2>
 
@@ -158,6 +160,17 @@
         </label>
 
         <label class="checkbox block-check">
+          <input type="checkbox" id="matchByUrl" name="matchByUrl" checked />
+          <span>
+            <strong>Match local bookmarks by URL</strong>
+            <span class="badge-rec">recommended</span>
+            <span class="hint inline-hint">
+              When applying server bookmarks, if the id map misses, reuse an existing local bookmark with the same URL in the same folder instead of creating a duplicate.
+            </span>
+          </span>
+        </label>
+
+        <label class="checkbox block-check">
           <input type="checkbox" id="destructiveFailsafe" name="destructiveFailsafe" checked />
           <span>
             <strong>Destructive sync failsafe</strong>
@@ -185,8 +198,7 @@
         <div class="form-actions">
           <button type="submit" class="btn btn-primary">Save settings</button>
         </div>
-
-        <p class="msg" id="msg" hidden></p>
+        <p class="msg" id="msg" role="status" aria-live="polite" hidden></p>
       </form>
 
       <section class="card muted small">

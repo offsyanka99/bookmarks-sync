@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.2.0`
+**Version:** `1.2.1`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -31,7 +31,14 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
 
-### What’s new in 1.2.0
+### What’s new in 1.2.1
+
+- **Duplicate detection:** folder-scoped same-URL report (`GET /api/bookmarks/duplicates`) and optional soft-delete cleanup (`POST /api/bookmarks/dedupe`; admin **Dedupe** button)
+- **Sync merge by folder+URL:** when a client pushes a new id for a URL that already exists in the same folder, the server updates the existing row instead of creating a twin (response includes `merges`)
+- **Extension:** match local bookmarks by URL when applying server data (setting **Match local bookmarks by URL**, on by default); Test connection result shows **inline under the button**
+- **Admin session timeout:** `SESSION_MAX_AGE_MINUTES` (default **15**), rolling cookie
+
+### 1.2.0
 
 - **Admin confirmation dialogs** for delete user, clear bookmarks, and regenerate API key
 - **Reset to default** (danger zone): wipe all users, bookmarks, and the DB, log out, return to `/setup`
@@ -211,6 +218,7 @@ See [Browser extension](#browser-extension-chrome--brave--firefox) for install s
 | `ADMIN_PASSWORD` | unset | Optional. If set and no admin exists, create admin at startup (headless). Otherwise use UI `/setup` |
 | `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from env |
 | `SESSION_SECRET` | auto file | Signs admin session cookies. Prefer env, else `data/.session-secret` (auto-created) |
+| `SESSION_MAX_AGE_MINUTES` | `15` | Admin portal **idle** session lifetime (minutes). Cookie is **rolling** (refreshed while you use the UI). Set via env and restart — not a runtime UI toggle (ops best practice for self-hosted apps). |
 | `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS. Also enables HSTS + CSP `upgrade-insecure-requests`. Leave **`false` on plain HTTP LAN** (e.g. TrueNAS) or CSS/icons will not load. |
 | `CORS_ORIGINS` | empty | API CORS: empty = off; `*` = any origin; or comma-separated allowlist |
 | `TRUST_PROXY` | `false` | Set when behind a reverse proxy so `req.ip` / rate limits are correct |
@@ -292,7 +300,7 @@ Local dev uses prettier console lines unless you set `LOG_STDOUT_FORMAT=json`.
 
 ---
 
-## Session secret (`SESSION_SECRET`)
+## Session secret (`SESSION_SECRET`) and timeout
 
 This value is the **secret key used to sign the admin portal’s session cookie**.
 
@@ -302,6 +310,8 @@ When you log in to the admin UI, Express creates a **new** session id (`session.
 2. It was not **tampered with**
 
 If the secret is wrong or changed, existing sessions become invalid and you must log in again.
+
+**Idle timeout:** `SESSION_MAX_AGE_MINUTES` (default **15**). Prefer an **environment variable** (restart to apply) rather than a runtime UI toggle — session lifetime is security/ops policy and matches Docker/TrueNAS config practice. Cookies are **rolling**: each authenticated request refreshes the expiry so active use does not log you out mid-task. Previously this was a hard-coded 7-day cookie.
 
 ### Resolution order
 
@@ -413,10 +423,12 @@ All routes below operate **only on that user’s bookmarks**.
 |---|---|---|
 | `GET` | `/api/bookmarks` | List (`?folder=`, `?includeDeleted=true`) |
 | `GET` | `/api/bookmarks/:id` | Get one |
-| `POST` | `/api/bookmarks` | Create |
+| `POST` | `/api/bookmarks` | Create (`?merge=true` updates same folder+URL twin instead of `409`) |
 | `PUT` | `/api/bookmarks/:id` | Update (optimistic lock; see below) |
 | `DELETE` | `/api/bookmarks/:id` | Soft-delete (`?hard=true` permanent; optimistic lock) |
 | `POST` | `/api/bookmarks/sync` | Merge push by `updatedAt` (see conflict handling) |
+| `GET` | `/api/bookmarks/duplicates` | Report folder-scoped same-URL groups |
+| `POST` | `/api/bookmarks/dedupe` | Soft-delete extras in each group (`{ "dryRun": true }` to preview) |
 | `GET` | `/api/bookmarks/export` | JSON export |
 | `POST` | `/api/bookmarks/import` | Same merge rules as sync |
 
@@ -463,7 +475,19 @@ curl -s -X DELETE "$BASE/api/bookmarks/$ID?force=true" \
   -H "Authorization: Bearer $USER_API_KEY"
 ```
 
-Create with a client-chosen `id` that already exists → **`409`**.
+Create with a client-chosen `id` that already exists → **`409`**.  
+Create with a **new** `id` but same **folder + URL** as an active row → **`409`** (`duplicate_url`) unless `merge=true` (then update the existing row).
+
+#### Duplicates (folder + URL)
+
+A **duplicate** is two or more **active URL bookmarks** with the same **folder** and the same **normalized URL** (via `URL().href` when parseable).  
+Same URL in **different folders** is allowed (not a duplicate). Folder rows (`__dir__` / empty url) are ignored.
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /api/bookmarks/duplicates` | Groups with `count ≥ 2`, `keepId` (newest), and member bookmarks |
+| `POST /api/bookmarks/dedupe` | Soft-deletes extras; keeps newest `updatedAt` (then lowest position). Body `{ "dryRun": true }` previews |
+| Admin UI **Dedupe** | Same cleanup for one user (confirm dialog) |
 
 #### Sync / import (`POST /api/bookmarks/sync`)
 
@@ -474,7 +498,8 @@ Body:
   "bookmarks": [ { "id": "...", "title": "...", "url": "...", "updatedAt": "..." } ],
   "replace": false,
   "lastSyncAt": "2026-07-13T12:00:00.000Z",
-  "force": false
+  "force": false,
+  "mergeDuplicates": true
 }
 ```
 
@@ -483,11 +508,13 @@ Per bookmark (same user):
 | Case | Action |
 |---|---|
 | No server row | **Create** |
+| No server row for client `id`, but same **folder+URL** exists | **Merge** into existing id (no second row); listed in `merges` |
 | Client `updatedAt` **newer** than server | **Update** server |
 | Client `updatedAt` **older** than server | **Skip**; listed in `conflicts` (`server_newer`) |
 | Same `updatedAt`, fields unchanged | **Unchanged** |
 | Same `updatedAt`, but title/url/folder/position/notes/tags/favicon differ | **Update** (reorder / content fix; server bumps `updatedAt`) |
 | `force: true` | Always apply client values |
+| `mergeDuplicates: false` | Disable folder+URL merge on create (legacy behaviour) |
 
 `replace: true` soft-deletes server bookmarks **not** in the payload:
 
@@ -503,6 +530,10 @@ Example response:
   "unchanged": 5,
   "skipped": 1,
   "deleted": 0,
+  "merged": 1,
+  "merges": [
+    { "clientId": "...", "serverId": "...", "folder": "other:", "url": "https://example.com/" }
+  ],
   "processed": 9,
   "conflicts": [
     {
@@ -518,7 +549,7 @@ Example response:
 }
 ```
 
-Clients (e.g. a browser extension) should store `lastSyncAt`, send it on the next sync, and resolve `conflicts` locally when needed.
+Clients (e.g. a browser extension) should store `lastSyncAt`, send it on the next sync, apply `merges` to the local id map, and resolve `conflicts` locally when needed.
 
 ### Bookmark object
 
@@ -602,7 +633,7 @@ docker compose up -d --build
 ```
 
 No required secrets. Database + auto session secret: `/app/data` volume.  
-Optional env: `ADMIN_PASSWORD`, `SESSION_SECRET` (see `.env.example`).
+Optional env: `ADMIN_PASSWORD`, `SESSION_SECRET`, `SESSION_MAX_AGE_MINUTES` (see `.env.example`).
 
 ### TrueNAS SCALE (custom app YAML)
 

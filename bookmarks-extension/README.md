@@ -1,6 +1,6 @@
 # Bookmarks Sync — Browser Extensions
 
-**Version:** `1.0.0` (matches server package version)
+**Extension package version:** `1.0.0` (Chrome Web Store / XPI). Server is versioned separately (`package.json`).
 
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 
@@ -28,6 +28,7 @@ npm run ext:sync
 | **Sync on startup** | Runs a few seconds after the browser profile starts |
 | **Time-based sync** | Alarms; default interval **15** minutes |
 | **Strategies** | Merge (recommended), download (server wins), upload (local wins) |
+| **Match by URL** | When applying server data, reuse a same-folder local URL if the id map misses (avoids duplicates; on by default) |
 | **ID map** | Browser bookmark id ↔ server UUID in extension storage |
 | **Host access** | Optional permission only for the API origin you configure |
 
@@ -168,6 +169,9 @@ bookmarks-extension/
 
 - Where **new** server bookmarks are created (Other Bookmarks / Bookmarks Bar)  
 - Remove local bookmarks deleted on the server  
+- **Match local bookmarks by URL** (recommended) — avoid creating a second local entry when the id map is incomplete  
+
+**Test connection** shows its multi-line result **directly under the button** (not at the bottom of the long form).
 
 ---
 

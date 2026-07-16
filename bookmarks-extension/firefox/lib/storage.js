@@ -43,6 +43,13 @@ const DEFAULT_SETTINGS = {
   destructiveFailsafePercent: 50,
 
   /**
+   * When applying server bookmarks, if idMap misses, reuse a local sibling
+   * with the same URL under the same parent instead of creating a duplicate.
+   * Recommended on (Floccus-style).
+   */
+  matchByUrl: true,
+
+  /**
    * @deprecated prefer timeBasedSync + syncIntervalMinutes; still read for migration
    */
   autoSyncMinutes: 0,
@@ -91,6 +98,8 @@ export function normalizeSettings(raw = {}) {
   if (!Number.isFinite(pct) || pct < 1) pct = 50;
   if (pct > 100) pct = 100;
   next.destructiveFailsafePercent = Math.floor(pct);
+
+  next.matchByUrl = next.matchByUrl !== false;
 
   // Keep autoSyncMinutes aligned for any old UI/code paths
   next.autoSyncMinutes = next.timeBasedSync ? next.syncIntervalMinutes : 0;

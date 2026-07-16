@@ -134,18 +134,81 @@ const bookmarkController = {
         return res.status(400).json({ error: errors.join('; ') });
       }
 
-      const result = Bookmark.create(userId(req), req.body);
+      const mergeDuplicates =
+        req.query.merge === 'true' ||
+        req.body?.merge === true ||
+        req.body?.merge === 'true';
+
+      const result = Bookmark.create(userId(req), req.body, { mergeDuplicates });
       if (!result.ok) {
         if (result.code === 'CONFLICT') {
           logger.info('create bookmark conflict', { userId: userId(req), reason: result.reason });
         }
         return sendResultError(res, result);
       }
-      logger.debug('bookmark created', { userId: userId(req), id: result.bookmark.id });
-      res.status(201).json(result.bookmark);
+      logger.debug('bookmark created', {
+        userId: userId(req),
+        id: result.bookmark.id,
+        merged: Boolean(result.merged),
+      });
+      const status = result.merged ? 200 : 201;
+      res.status(status).json({
+        ...result.bookmark,
+        ...(result.merged
+          ? { merged: true, clientId: result.clientId || null }
+          : {}),
+      });
     } catch (err) {
       logger.error('create bookmark failed', { err: err.message, stack: err.stack });
       res.status(500).json({ error: 'Failed to create bookmark' });
+    }
+  },
+
+  /**
+   * GET /api/bookmarks/duplicates — folder-scoped URL twins for this user.
+   */
+  listDuplicates(req, res) {
+    try {
+      const report = Bookmark.findDuplicates(userId(req));
+      res.json({
+        groupCount: report.groupCount,
+        extraCount: report.extraCount,
+        groups: report.groups.map((g) => ({
+          folder: g.folder,
+          url: g.url,
+          count: g.count,
+          keepId: g.keepId,
+          bookmarks: g.bookmarks,
+        })),
+      });
+    } catch (err) {
+      logger.error('list duplicates failed', { err: err.message, stack: err.stack });
+      res.status(500).json({ error: 'Failed to list duplicates' });
+    }
+  },
+
+  /**
+   * POST /api/bookmarks/dedupe — soft-delete extras in each folder+url group.
+   * Body: { dryRun?: boolean }
+   */
+  dedupe(req, res) {
+    try {
+      const dryRun =
+        req.body?.dryRun === true ||
+        req.body?.dryRun === 'true' ||
+        req.query.dryRun === 'true';
+      const result = Bookmark.dedupeByFolderUrl(userId(req), { dryRun });
+      logger.info('bookmarks dedupe', {
+        userId: userId(req),
+        username: req.user?.username,
+        dryRun: result.dryRun,
+        groupCount: result.groupCount,
+        removedCount: result.removedCount,
+      });
+      res.json(result);
+    } catch (err) {
+      logger.error('dedupe bookmarks failed', { err: err.message, stack: err.stack });
+      res.status(500).json({ error: 'Failed to dedupe bookmarks' });
     }
   },
 
@@ -266,10 +329,13 @@ const bookmarkController = {
         }
       }
 
+      const mergeDuplicates = req.body.mergeDuplicates !== false;
+
       const result = Bookmark.syncFromClient(userId(req), list, {
         replace,
         lastSyncAt,
         force,
+        mergeDuplicates,
       });
       const lastSync = new Date().toISOString();
       Bookmark.setMeta(`last_sync_at:${userId(req)}`, lastSync);
@@ -284,6 +350,7 @@ const bookmarkController = {
         updated: result.updated,
         skipped: result.skipped,
         deleted: result.deleted,
+        merged: result.merged,
         conflicts: result.conflicts.length,
         replace,
         force,
@@ -296,6 +363,8 @@ const bookmarkController = {
         unchanged: result.unchanged,
         skipped: result.skipped,
         deleted: result.deleted,
+        merged: result.merged,
+        merges: result.merges,
         processed: result.processed,
         conflicts: result.conflicts,
         count: result.bookmarks.length,
@@ -341,10 +410,13 @@ const bookmarkController = {
       const force = Boolean(req.body?.force);
       const lastSyncAt = req.body?.lastSyncAt || null;
 
+      const mergeDuplicates = req.body?.mergeDuplicates !== false;
+
       const result = Bookmark.syncFromClient(userId(req), list, {
         replace,
         lastSyncAt,
         force,
+        mergeDuplicates,
       });
       Bookmark.setMeta(`last_import_at:${userId(req)}`, new Date().toISOString());
 
@@ -352,6 +424,7 @@ const bookmarkController = {
         userId: userId(req),
         created: result.created,
         updated: result.updated,
+        merged: result.merged,
         conflicts: result.conflicts.length,
       });
 
@@ -361,6 +434,8 @@ const bookmarkController = {
         unchanged: result.unchanged,
         skipped: result.skipped,
         deleted: result.deleted,
+        merged: result.merged,
+        merges: result.merges,
         conflicts: result.conflicts,
         count: result.bookmarks.length,
         bookmarks: result.bookmarks,
