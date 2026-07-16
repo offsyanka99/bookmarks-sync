@@ -73,6 +73,7 @@ services:
       # Optional overrides (uncomment only if you need them):
       # ADMIN_USERNAME: admin
       # ADMIN_PASSWORD: "your-strong-password"   # headless bootstrap; avoid $ in Compose
+      # Only uncomment and set SESSION_SECRET if you want an explicit secret you control
       # SESSION_SECRET: "from-openssl-rand-hex-32"
       # RESET_ADMIN_PASSWORD: "false"
 
