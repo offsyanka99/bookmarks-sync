@@ -1,7 +1,7 @@
 # Privacy Policy — Bookmarks Sync
 
 **Browser extension** (Chrome, Brave, Firefox)  
-**Last updated:** 14 July 2026  
+**Last updated:** 15 July 2026  
 **Project:** https://github.com/offsyanka99/bookmarks-sync
 
 ## Single purpose
@@ -16,7 +16,7 @@ This extension syncs the user’s browser bookmarks with a **self-hosted Bookmar
 
 - **Bookmarks** — titles, URLs, folders, and order. Read from the browser and sent to *your* server when you sync.
 - **API base URL and API key** — stored only in this browser’s extension storage so the extension can reach your server.
-- **Sync settings** — strategy, intervals, failsafe options; stored in extension storage on this device.
+- **Sync settings** — strategy, intervals, failsafe options, and local matching preferences (e.g. match-by-URL); stored in extension storage on this device.
 - **Technical labels** — optional request headers (e.g. browser name, extension version) sent only to your configured server for its own logs.
 
 ## Where data goes

@@ -1,6 +1,6 @@
 # Bookmarks Sync — Browser Extensions
 
-**Extension package version:** `1.0.0` (Chrome Web Store / XPI). Server is versioned separately (`package.json`).
+**Extension package version:** `1.1.0` (Chrome Web Store / XPI). Server is versioned separately (`package.json`).
 
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 

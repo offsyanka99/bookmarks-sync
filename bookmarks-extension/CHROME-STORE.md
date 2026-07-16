@@ -8,11 +8,77 @@
 |---|---|
 | **Store item ID** | `ndiehbfpikbmhdgffcfohoeojlmfbpal` |
 | **Status** | Live (Google-signed) |
+| **Current package version** | **1.1.0** |
 
 Chrome does **not** use a local “sign this XPI” flow like Firefox.  
 You upload a **ZIP** to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole); Google hosts and signs the published item.
 
 This document is for **maintainers** updating the live listing. End users should install from the store URL above (see [README.md](./README.md)).
+
+---
+
+## Submit update 1.1.0 (checklist)
+
+### Package ready to upload
+
+| Item | Path |
+|---|---|
+| **ZIP (upload this)** | [`dist/bookmarks-sync-chrome-1.1.0.zip`](../dist/bookmarks-sync-chrome-1.1.0.zip) |
+| Stable name (same bytes) | `dist/bookmarks-sync-chrome.zip` |
+| Manifest version | `1.1.0` |
+| Privacy policy URL | `https://github.com/offsyanka99/bookmarks-sync/blob/main/docs/PRIVACY.md` |
+
+Rebuild anytime:
+
+```bash
+# From repo root
+npm run ext:pack-chrome
+```
+
+### Store graphics (upload in Dashboard → Store listing)
+
+Pre-generated at required sizes under [`docs/chrome-store/`](../docs/chrome-store/):
+
+| Asset | File | Size |
+|---|---|---|
+| Screenshot 1 (options) | `docs/chrome-store/screenshot-01-options-1280x800.png` | 1280×800 |
+| Screenshot 2 (popup) | `docs/chrome-store/screenshot-02-popup-1280x800.png` | 1280×800 |
+| Small promo tile | `docs/chrome-store/promo-small-440x280.png` | 440×280 |
+| Marquee (optional) | `docs/chrome-store/promo-marquee-1400x560.png` | 1400×560 |
+| Listing icon | from package `icons/icon128.png` | 128×128 |
+
+640×400 variants of the screenshots are also in that folder if you prefer.
+
+### Dashboard steps (update)
+
+1. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → item **`ndiehbfpikbmhdgffcfohoeojlmfbpal`**.
+2. **Package** → **Upload new package** → select `dist/bookmarks-sync-chrome-1.1.0.zip`.
+3. **Store listing** → upload/replace screenshots + promo tiles if desired.
+4. **Privacy** → confirm practices still match §4 (no change required for 1.1.0).
+5. **What's new** (this version) — paste:
+
+```text
+• Match local bookmarks by URL when applying server data (reduces duplicates if the id map is incomplete; on by default)
+• Test connection results appear directly under the button in Settings
+• Works with server 1.2.1+ folder-scoped URL merge during sync
+• Same privacy model: data only goes to the API URL you configure
+```
+
+6. Review permissions justifications (unchanged — see table below).
+7. **Submit for review**.
+
+Keep the same store item ID so user settings survive the update.
+
+### Local smoke test before submit
+
+1. `chrome://extensions` → Developer mode → **Load unpacked** → `bookmarks-extension/chrome/`  
+   (or load the built ZIP).
+2. Options → API URL + key → **Save** → allow host access.
+3. **Test connection** — result must appear **under** the button.
+4. Confirm **Match local bookmarks by URL** is checked (Advanced).
+5. **Sync now** against your server API port.
+
+Do **not** load the Firefox folder into Chrome.
 
 ---
 
@@ -27,7 +93,7 @@ npm run ext:pack-chrome
 Creates:
 
 ```text
-dist/bookmarks-sync-chrome-1.0.0.zip   # versioned (upload this)
+dist/bookmarks-sync-chrome-1.1.0.zip   # versioned (upload this)
 dist/bookmarks-sync-chrome.zip         # same contents, stable name
 ```
 
@@ -52,7 +118,7 @@ The ZIP root **is** the extension root (`manifest.json` at the top of the archiv
 
 1. Pay the one-time Chrome Web Store developer registration fee (if not already done).
 2. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **New item**.
-3. Upload `dist/bookmarks-sync-chrome-1.0.0.zip` (or the current versioned ZIP).
+3. Upload the versioned ZIP from `dist/`.
 4. Fill the store listing (see copy below).
 5. **Privacy** practices (required):
    - Declare that the extension handles **user data** (bookmarks, and network data to the user’s server).
@@ -91,13 +157,13 @@ Sync bookmarks with your own self-hosted server. You control the data—no third
 
 (96 characters)
 
-**Alternate short description:**
+**Alternate short description** (matches `manifest.json` description):
 
 ```text
-Self-hosted bookmark sync for Chrome & Brave. Folders, order, API key—your server, your data.
+Sync browser bookmarks with your self-hosted server. Folders, merge strategies, your API key.
 ```
 
-(95 characters)
+(93 characters)
 
 ### Detailed description
 
@@ -119,6 +185,7 @@ WHAT IT DOES
     – Download — make this browser match the server
     – Upload — push this browser as the source of truth
 • Folders and mixed order — toolbar / other bookmarks structure and sibling order are preserved
+• Match by URL — when applying server data, reuse a local bookmark with the same URL in the same folder if the id map is incomplete (reduces duplicates)
 • Failsafe — large destructive syncs are refused unless you confirm in the extension UI
 • Multi-device — same library on several Chromium browsers via one self-hosted backend
 
@@ -223,15 +290,14 @@ Example: `https://your-domain.example/privacy-extension.html`
 
 ---
 
-## 5. Store assets you still need
+## 5. Store assets
 
-Create and upload (not generated by the pack script):
-
-| Asset | Size | Notes |
+| Asset | Size | Location |
 |---|---|---|
-| Screenshots | 1280×800 or 640×400 | At least 1; show popup + options + a sync result |
-| Small promo tile | 440×280 | Optional but helps listing |
-| Marquee | 1400×560 | Optional |
+| Screenshots | 1280×800 (or 640×400) | [`docs/chrome-store/`](../docs/chrome-store/) |
+| Small promo tile | 440×280 | same folder |
+| Marquee | 1400×560 | same folder (optional) |
+| Icons | 16–128 | in the ZIP (`icons/`) |
 
 Icons already in the package (`icons/icon128.png`, etc.) are used for the store listing icon.
 
