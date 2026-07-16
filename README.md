@@ -729,7 +729,7 @@ Works in Chrome and other Chromium browsers that support the Chrome Web Store (i
 **Permanent (recommended — works on release Firefox when signed):**
 
 ```text
-dist/bookmarks-sync-firefox-1.0.0.xpi
+dist/bookmarks-sync-firefox-1.1.0.xpi
 ```
 
 1. `about:addons` → gear → **Install Add-on From File…**

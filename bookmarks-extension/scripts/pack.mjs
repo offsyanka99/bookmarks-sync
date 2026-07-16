@@ -259,13 +259,19 @@ async function packFirefox() {
     process.exit(1);
   }
 
-  const out = path.join(distDir, 'bookmarks-sync-firefox.xpi');
-  await zipDirectory(src, out);
-  console.log(`Firefox package: ${out}`);
+  const version = manifest.version || '0.0.0';
+  const outLatest = path.join(distDir, 'bookmarks-sync-firefox.xpi');
+  const outVersioned = path.join(distDir, `bookmarks-sync-firefox-${version}.xpi`);
+  await zipDirectory(src, outLatest);
+  fs.copyFileSync(outLatest, outVersioned);
+  console.log(`Firefox package: ${outVersioned}`);
+  console.log(`Firefox package: ${outLatest} (same build, unsigned)`);
   console.log(`Extension id:   ${id}`);
+  console.log(`Version:        ${version}`);
   console.log('');
-  console.log('Install steps: bookmarks-extension/FIREFOX-INSTALL.md');
-  return out;
+  console.log('This build is UNSIGNED. For release Firefox, sign via AMO (web-ext sign)');
+  console.log('then commit dist/bookmarks-sync-firefox-X.Y.Z.xpi — see FIREFOX-INSTALL.md.');
+  return outLatest;
 }
 
 fs.mkdirSync(distDir, { recursive: true });

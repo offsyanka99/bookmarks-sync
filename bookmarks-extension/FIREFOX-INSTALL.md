@@ -14,7 +14,13 @@ For a **permanent** install that **survives restarts** and **keeps Options** (AP
 A **signed** release package is committed under `dist/`:
 
 ```text
-dist/bookmarks-sync-firefox-1.0.0.xpi
+dist/bookmarks-sync-firefox-1.1.0.xpi
+```
+
+Also available as a stable name (same signed build):
+
+```text
+dist/bookmarks-sync-firefox.xpi
 ```
 
 Works on **normal release Firefox** when the file is **Mozilla-signed** (no Developer Edition, no `about:config` hacks).  
@@ -25,7 +31,7 @@ If only an unsigned rebuild is present, use Developer Edition or re-sign (see be
 1. Download the `.xpi` from the repo (`dist/` on GitHub, or your clone).
 2. Open Firefox → `about:addons`.
 3. Gear icon ⚙ → **Install Add-on From File…**
-4. Choose `dist/bookmarks-sync-firefox-1.0.0.xpi`.
+4. Choose `dist/bookmarks-sync-firefox-1.1.0.xpi`.
 5. Confirm permissions → **Options** → API base URL + API key → **Save**.
 6. **Test connection** → **Sync now** from the toolbar popup.
 
