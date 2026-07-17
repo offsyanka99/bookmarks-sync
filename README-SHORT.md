@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.2.1`
+**Version:** `1.2.2`
 
 Self-hosted multi-user bookmark sync: **Node.js + Express + SQLite** API, admin portal, and browser extensions (**Chrome / Brave / Firefox**). Each user has an isolated library and a personal **API key** — no shared global key, no mandatory E2E encryption.
 
@@ -114,6 +114,7 @@ curl -s -X POST "$BASE/api/bookmarks/sync" \
 | `DB_PATH` | `./data/bookmarks.db` | SQLite file |
 | `SESSION_SECRET` | auto file | Signs admin session cookie |
 | `SESSION_MAX_AGE_MINUTES` | `15` | Admin idle timeout (rolling cookie) |
+| `TIME_FORMAT` | `24h` | UI clock: `24h` or `12h` (admin + extensions via `/info`) |
 | `COOKIE_SECURE` | `false` | `true` only behind HTTPS |
 | `ALLOW_NEW_SYNCS` | `true` | Reject sync when `false` |
 | `LOG_LEVEL` / `LOG_TO_STDOUT` | `info` / `true` | Logging (stdout for Dozzle) |
@@ -124,12 +125,10 @@ Full list: [`.env.example`](./.env.example) · [README — Environment](./README
 
 ---
 
-## What’s new (1.2.1)
+## What’s new (1.2.2)
 
-- Folder-scoped duplicate report / dedupe (API + admin **Dedupe**)  
-- Sync merges same folder+URL instead of creating twins  
-- Extension: match-by-URL apply; Test connection result under the button  
-- Admin session: `SESSION_MAX_AGE_MINUTES` (default 15)
+- **`TIME_FORMAT`** (`24h` / `12h`) for admin + extension timestamps; published on `GET /info`  
+- Admin portal: Session info card removed (env timeout unchanged)
 
 ---
 

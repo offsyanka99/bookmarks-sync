@@ -145,6 +145,8 @@ export async function getMeta() {
       lastResult: null,
       lastError: null,
       lastSyncStatus: 'never',
+      /** Cached from GET /info timeFormat ('12h' | '24h') */
+      serverTimeFormat: '24h',
     },
   });
   return meta || {};

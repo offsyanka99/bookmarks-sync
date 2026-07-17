@@ -1,4 +1,5 @@
 import { getClientInfo } from '../lib/clientInfo.js';
+import { formatDateTime } from '../lib/formatDateTime.js';
 import {
   browserLabel,
   FAILSAFE_TITLE,
@@ -71,13 +72,9 @@ function hideFailsafe() {
   el.mainActions.hidden = false;
 }
 
-function formatWhen(iso) {
+function formatWhen(iso, timeFormat) {
   if (!iso) return 'Never';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+  return formatDateTime(iso, iso, timeFormat);
 }
 
 /** Build status pill with DOM APIs (no innerHTML — AMO / CSP friendly). */
@@ -114,7 +111,10 @@ async function refreshStatus() {
   el.serverUrl.textContent = settings.apiBaseUrl || '—';
   el.apiKeyState.textContent = settings.hasApiKey ? 'configured' : 'missing';
   el.apiKeyState.style.color = settings.hasApiKey ? '' : 'var(--danger)';
-  el.lastSync.textContent = formatWhen(meta?.lastSyncAt || meta?.lastResult?.at);
+  el.lastSync.textContent = formatWhen(
+    meta?.lastSyncAt || meta?.lastResult?.at,
+    meta?.serverTimeFormat
+  );
   setStatusPill(el.syncStatus, meta?.lastSyncStatus || 'never');
 
   // Don't overwrite failsafe panel with last error

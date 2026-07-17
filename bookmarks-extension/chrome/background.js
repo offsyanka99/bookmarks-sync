@@ -2,7 +2,9 @@
  * Service worker: alarms, change-based sync, startup sync, messages.
  */
 
-import { getSettings, getMeta } from './lib/storage.js';
+import { getSettings, getMeta, saveMeta } from './lib/storage.js';
+import { getInfo } from './lib/api.js';
+import { normalizeTimeFormat } from './lib/formatDateTime.js';
 import {
   runSync,
   testConnection,
@@ -164,6 +166,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message?.type === 'GET_STATUS') {
         const [settings, meta] = await Promise.all([getSettings(), getMeta()]);
+        let serverTimeFormat = normalizeTimeFormat(meta.serverTimeFormat);
+        // Refresh TIME_FORMAT from public GET /info when online (no API key needed).
+        if (settings.apiBaseUrl) {
+          try {
+            const info = await getInfo(settings, { retries: 1 });
+            if (info?.timeFormat) {
+              serverTimeFormat = normalizeTimeFormat(info.timeFormat);
+              await saveMeta({ serverTimeFormat });
+            }
+          } catch {
+            // offline — keep cached format
+          }
+        }
         sendResponse({
           ok: true,
           settings: {
@@ -179,7 +194,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             destructiveFailsafe: settings.destructiveFailsafe !== false,
             destructiveFailsafePercent: settings.destructiveFailsafePercent || 50,
           },
-          meta,
+          meta: { ...meta, serverTimeFormat },
         });
         return;
       }

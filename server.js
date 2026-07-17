@@ -21,6 +21,7 @@ const {
   resolveSessionMaxAgeMs,
   resolveSessionMaxAgeMinutes,
 } = require('./src/utils/securityConfig');
+const { resolveTimeFormat } = require('./src/utils/timeFormat');
 const bookmarksRouter = require('./src/routes/bookmarks');
 const adminRouter = require('./src/routes/admin');
 const Bookmark = require('./src/models/Bookmark');
@@ -176,6 +177,8 @@ apiApp.get('/info', (_req, res) => {
       allowNewSyncs: process.env.ALLOW_NEW_SYNCS !== 'false',
       maxSyncSizeBytes: Number(process.env.MAX_SYNC_SIZE_BYTES) || 1048576,
       multiUser: true,
+      /** UI clock: '12h' | '24h' (from TIME_FORMAT env). Extensions + admin honor this. */
+      timeFormat: resolveTimeFormat(),
     });
   } catch (err) {
     logger.error('Info endpoint failed', { err: err.message });

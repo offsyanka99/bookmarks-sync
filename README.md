@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.2.1`
+**Version:** `1.2.2`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -31,7 +31,13 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
 
-### What’s new in 1.2.1
+### What’s new in 1.2.2
+
+- **`TIME_FORMAT` env** (`24h` default / `12h`): server-wide UI clock for admin **Created** timestamps and extension **Last sync** (and failsafe messages)
+- Exposed on public **`GET /info`** as `timeFormat`; extensions cache it from the server
+- Admin portal: removed the **Session** info card (timeout still configured via `SESSION_MAX_AGE_MINUTES`)
+
+### 1.2.1
 
 - **Duplicate detection:** folder-scoped same-URL report (`GET /api/bookmarks/duplicates`) and optional soft-delete cleanup (`POST /api/bookmarks/dedupe`; admin **Dedupe** button)
 - **Sync merge by folder+URL:** when a client pushes a new id for a URL that already exists in the same folder, the server updates the existing row instead of creating a twin (response includes `merges`)
@@ -219,6 +225,7 @@ See [Browser extension](#browser-extension-chrome--brave--firefox) for install s
 | `RESET_ADMIN_PASSWORD` | unset / `false` | Set to `true` once to re-apply admin login from env |
 | `SESSION_SECRET` | auto file | Signs admin session cookies. Prefer env, else `data/.session-secret` (auto-created) |
 | `SESSION_MAX_AGE_MINUTES` | `15` | Admin portal **idle** session lifetime (minutes). Cookie is **rolling** (refreshed while you use the UI). Set via env and restart — not a runtime UI toggle (ops best practice for self-hosted apps). |
+| `TIME_FORMAT` | `24h` | UI clock for **admin portal** timestamps and **browser extensions** (`Last sync`, etc.). `24h` or `12h` (also accepts `24` / `12` / `h23` / `h12` / `ampm`). Exposed on public `GET /info` as `timeFormat`. Restart to apply. |
 | `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS. Also enables HSTS + CSP `upgrade-insecure-requests`. Leave **`false` on plain HTTP LAN** (e.g. TrueNAS) or CSS/icons will not load. |
 | `CORS_ORIGINS` | empty | API CORS: empty = off; `*` = any origin; or comma-separated allowlist |
 | `TRUST_PROXY` | `false` | Set when behind a reverse proxy so `req.ip` / rate limits are correct |
@@ -400,7 +407,7 @@ Base URL: `http://127.0.0.1:<SERVER_PORT>/`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Liveness probe |
-| `GET` | `/info` | Minimal public status (`name`, `version`, `status`, `message`, `allowNewSyncs`, …) |
+| `GET` | `/info` | Minimal public status (`name`, `version`, `status`, `message`, `allowNewSyncs`, `timeFormat`, …) |
 | `GET` | `/` | Short API landing page |
 
 ### Authenticated (per-user API key)

@@ -17,7 +17,7 @@ const {
 } = require('../utils/logger');
 const { createRateLimiter } = require('../utils/rateLimit');
 const { zipStore } = require('../utils/zipStore');
-const { resolveSessionMaxAgeMinutes } = require('../utils/securityConfig');
+const { resolveTimeFormat } = require('../utils/timeFormat');
 
 function takeFlash(req) {
   const flash = req.session.flash || null;
@@ -243,7 +243,7 @@ const adminController = {
         counts,
         duplicateExtras,
         logConfig: getLogConfig(),
-        sessionMaxAgeMinutes: resolveSessionMaxAgeMinutes(),
+        timeFormat: resolveTimeFormat(),
       })
     );
   },

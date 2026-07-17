@@ -16,6 +16,7 @@ import {
   getSyncSnapshot,
   saveSyncSnapshot,
 } from './storage.js';
+import { formatDateTime, normalizeTimeFormat, DEFAULT_TIME_FORMAT } from './formatDateTime.js';
 import {
   ensureHostPermission,
   syncBookmarks,
@@ -24,6 +25,17 @@ import {
   listBookmarks,
   ApiError,
 } from './api.js';
+
+/**
+ * Persist server TIME_FORMAT from GET /info for UI date formatting.
+ * @param {object|null|undefined} info
+ * @returns {Promise<'12h'|'24h'>}
+ */
+export async function cacheServerTimeFormat(info) {
+  const timeFormat = normalizeTimeFormat(info?.timeFormat);
+  await saveMeta({ serverTimeFormat: timeFormat });
+  return timeFormat;
+}
 import {
   collectLocalBookmarks,
   clearManagedBookmarkRoots,
@@ -97,6 +109,7 @@ export async function testConnection() {
 
   const health = await getHealth(settings);
   const info = await getInfo(settings);
+  await cacheServerTimeFormat(info);
 
   let auth = null;
   if (settings.apiKey) {
@@ -119,6 +132,7 @@ export function formatDestructiveMessage({
   wouldRemove,
   total,
   lastSyncAt,
+  timeFormat = DEFAULT_TIME_FORMAT,
 }) {
   const where = side === 'server' ? 'on the server' : 'on this device';
   const pct = Math.round(percent);
@@ -130,7 +144,7 @@ export function formatDestructiveMessage({
     `or Upload to replace the server with this device.`;
   if (lastSyncAt) {
     try {
-      msg += ` | Last synchronized: ${new Date(lastSyncAt).toLocaleString()}`;
+      msg += ` | Last synchronized: ${formatDateTime(lastSyncAt, lastSyncAt, timeFormat)}`;
     } catch (err) {
       debugLog('sync', 'format lastSyncAt failed', { err: String(err) });
       msg += ` | Last synchronized: ${lastSyncAt}`;
@@ -139,7 +153,7 @@ export function formatDestructiveMessage({
   return msg;
 }
 
-function assertLocalDestructiveOk(settings, { localCount, wouldRemove, side, lastSyncAt, confirmDestructive }) {
+function assertLocalDestructiveOk(settings, { localCount, wouldRemove, side, lastSyncAt, confirmDestructive, timeFormat }) {
   if (!settings.destructiveFailsafe || confirmDestructive) return;
   const total = localCount;
   if (total < 10 || wouldRemove <= 0) return;
@@ -153,6 +167,7 @@ function assertLocalDestructiveOk(settings, { localCount, wouldRemove, side, las
       wouldRemove,
       total,
       lastSyncAt,
+      timeFormat,
     }),
     {
       code: 'destructive_refused',
@@ -353,6 +368,7 @@ async function runDownloadStrategy(settings, opts = {}) {
       side: 'local',
       lastSyncAt: meta.lastSyncAt,
       confirmDestructive: Boolean(opts.confirmDestructive),
+      timeFormat: meta.serverTimeFormat,
     });
   }
 
@@ -428,6 +444,7 @@ async function runUploadStrategy(settings, opts = {}) {
             wouldRemove: wouldDelete,
             total: serverCount,
             lastSyncAt: meta.lastSyncAt,
+            timeFormat: meta.serverTimeFormat,
           }),
           {
             code: 'destructive_refused',

@@ -172,12 +172,12 @@ export async function apiFetch(settings, path, options = {}) {
   return body;
 }
 
-export async function getHealth(settings) {
-  return apiFetch(settings, '/health');
+export async function getHealth(settings, options = {}) {
+  return apiFetch(settings, '/health', options);
 }
 
-export async function getInfo(settings) {
-  return apiFetch(settings, '/info');
+export async function getInfo(settings, options = {}) {
+  return apiFetch(settings, '/info', options);
 }
 
 export async function listBookmarks(settings, { includeDeleted = false } = {}) {

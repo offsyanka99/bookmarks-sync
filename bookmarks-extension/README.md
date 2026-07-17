@@ -194,7 +194,7 @@ Authorization: Bearer <api-key>
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Liveness |
-| `GET` | `/info` | Status |
+| `GET` | `/info` | Status + `timeFormat` (`12h`/`24h` from server `TIME_FORMAT`) |
 | `GET` | `/api/bookmarks` | List / download strategy |
 | `POST` | `/api/bookmarks/sync` | Merge / upload |
 

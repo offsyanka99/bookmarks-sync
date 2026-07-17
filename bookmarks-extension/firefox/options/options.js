@@ -1,4 +1,4 @@
-import { getSettings, saveSettings } from '../lib/storage.js';
+import { getSettings, saveSettings, saveMeta } from '../lib/storage.js';
 import {
   requestHostPermission,
   apiOriginPattern,
@@ -9,6 +9,7 @@ import {
   listBookmarks,
   ApiError,
 } from '../lib/api.js';
+import { normalizeTimeFormat } from '../lib/formatDateTime.js';
 import { getClientInfo } from '../lib/clientInfo.js';
 import { browserLabel, BTN_SHOW_KEY, BTN_HIDE_KEY } from '../lib/uiStrings.js';
 
@@ -98,6 +99,8 @@ async function runConnectionTestInPage(apiBaseUrl, apiKey) {
 
   const health = await probeHealth(apiBaseUrl);
   const info = await getInfo({ apiBaseUrl, apiKey: '' });
+  const timeFormat = normalizeTimeFormat(info?.timeFormat);
+  await saveMeta({ serverTimeFormat: timeFormat });
 
   let authLine = 'Auth: skipped (no API key)';
   if (apiKey) {
@@ -109,6 +112,7 @@ async function runConnectionTestInPage(apiBaseUrl, apiKey) {
   return [
     `Health: ${health?.status || 'ok'}`,
     `Service: ${info?.name || '?'} ${info?.version || ''} (${info?.status || ''})`,
+    `Time format: ${timeFormat}`,
     authLine,
     `Host access: ${permitted ? 'granted' : 'uncertain'}`,
     `Patterns: ${patterns.slice(0, 3).join(', ')}${patterns.length > 3 ? '…' : ''}`,

@@ -17,7 +17,7 @@ function usersPage({
   counts = {},
   duplicateExtras = {},
   logConfig = null,
-  sessionMaxAgeMinutes = 15,
+  timeFormat = '24h',
 }) {
   const rows = users
     .map((u) => {
@@ -216,21 +216,6 @@ function usersPage({
       </p>
     </section>
 
-    <section class="card">
-      <h2>Session</h2>
-      <p class="muted small">
-        Admin portal sessions expire after
-        <strong>${escapeHtml(String(sessionMaxAgeMinutes))}</strong> minutes of idle time
-        (cookie refreshed while you use the UI). Configure with env
-        <code>SESSION_MAX_AGE_MINUTES</code> and restart the server.
-      </p>
-      <p class="muted small" style="margin-top:0.5rem">
-        <strong>Duplicates:</strong> same URL in the same folder. The
-        <em>Dedupe</em> action soft-deletes extras and keeps the newest copy.
-        Same URL in different folders is allowed (not considered a duplicate).
-      </p>
-    </section>
-
     <section class="card muted small">
       <p><strong>API usage</strong> (per user):</p>
       <pre>curl -H "Authorization: Bearer &lt;api-key&gt;" http://localhost:${escapeHtml(process.env.SERVER_PORT || '31059')}/api/bookmarks</pre>
@@ -290,7 +275,10 @@ function usersPage({
       (function () {
         var MASK = '••••••••••••••••••••••••';
 
-        // Format timestamps in the browser locale/timezone (container is usually UTC)
+        // Format timestamps in the browser locale/timezone (container is usually UTC).
+        // Clock style (12h/24h) comes from server TIME_FORMAT env (injected below).
+        var timeFormat = ${JSON.stringify(timeFormat === '12h' ? '12h' : '24h')};
+        var hour12 = timeFormat === '12h';
         document.querySelectorAll('time.local-time[data-iso]').forEach(function (el) {
           var iso = el.getAttribute('data-iso') || el.getAttribute('datetime') || '';
           if (!iso) return;
@@ -301,9 +289,10 @@ function usersPage({
               year: 'numeric',
               month: 'numeric',
               day: 'numeric',
-              hour: 'numeric',
+              hour: '2-digit',
               minute: '2-digit',
               second: '2-digit',
+              hour12: hour12,
             });
             el.title = d.toISOString() + ' (UTC)';
           } catch (err) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bookmarks Sync",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Sync browser bookmarks with your self-hosted server. Folders, merge strategies, your API key.",
   "browser_specific_settings": {
     "gecko": {

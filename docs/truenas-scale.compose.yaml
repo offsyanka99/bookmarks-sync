@@ -14,6 +14,7 @@
 #   3. Adjust host path under volumes: and host ports if needed
 #   4. No ADMIN_PASSWORD / SESSION_SECRET required in this file
 #   5. Optional: SESSION_MAX_AGE_MINUTES (admin idle timeout, default 15)
+#   6. Optional: TIME_FORMAT=24h|12h (admin + extension clock display)
 #
 # After deploy (first run):
 #   1. Open Admin UI:  http://NAS-IP:31040
@@ -35,7 +36,7 @@ services:
     build:
       context: https://github.com/offsyanka99/bookmarks-sync.git#main
     # B) Or use a pre-built image you pushed (comment out build: above):
-    # image: ghcr.io/YOURUSER/bookmarks-sync:1.2.1
+    # image: ghcr.io/YOURUSER/bookmarks-sync:1.2.2
 
     container_name: bookmarks-sync
     restart: unless-stopped
@@ -80,6 +81,9 @@ services:
       # Admin session idle timeout (minutes). Cookie is rolling while the UI is used.
       # Raise (e.g. "60") if 15 minutes is too short for your workflow.
       SESSION_MAX_AGE_MINUTES: "15"
+
+      # UI clock for admin portal + browser extensions: "24h" (default) or "12h"
+      TIME_FORMAT: "24h"
 
       DB_PATH: /app/data/bookmarks.db
       LOG_DIR: /app/data/logs
