@@ -6,7 +6,7 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 
 **Stack:** Node.js + Express + SQLite · **Auth:** admin session (UI) + per-user API keys (REST / extension) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp.
 
-**Multi-user model** (inspired by [Baikal](https://github.com/sabre-io/Baikal)-style admin accounts and [xBrowserSync](https://github.com/offsyanka99/xbrowsersync)-style sync):
+**Multi-user model** (inspired by [Baikal](https://github.com/sabre-io/Baikal)-style admin accounts and [xBrowserSync](https://github.com/xbrowsersync)-style sync):
 
 | Who | How they authenticate | What they get |
 |---|---|---|
