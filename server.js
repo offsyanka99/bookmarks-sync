@@ -1,4 +1,5 @@
-require('dotenv').config();
+// quiet: suppress dotenv's "injected env" banner (dotenv@17+)
+require('dotenv').config({ quiet: true });
 
 const express = require('express');
 const session = require('express-session');

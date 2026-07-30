@@ -1,4 +1,4 @@
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const { getDb } = require('../utils/db');
 
 function nowIso() {
@@ -294,7 +294,7 @@ class Bookmark {
   static create(userId, data, { mergeDuplicates = false } = {}) {
     userId = requireUserId(userId);
     const db = getDb();
-    const id = data.id || uuidv4();
+    const id = data.id || randomUUID();
     const ts = nowIso();
 
     // If client supplies an id that already exists for this user → conflict
@@ -547,17 +547,55 @@ class Bookmark {
   }
 
   /**
+   * Soft-deleted rows for a user, optionally only those updated at/after `since`.
+   * Used so other clients can apply remote deletes (tombstones).
+   * @param {string} userId
+   * @param {{ since?: string|null }} [opts]
+   */
+  static findDeleted(userId, { since = null } = {}) {
+    userId = requireUserId(userId);
+    const db = getDb();
+    if (since) {
+      const rows = db
+        .prepare(
+          `SELECT ${SELECT_COLS} FROM bookmarks
+           WHERE user_id = ? AND deleted_at IS NOT NULL AND updated_at >= ?
+           ORDER BY updated_at DESC, id ASC`
+        )
+        .all(userId, since);
+      return rows.map(rowToBookmark);
+    }
+    const rows = db
+      .prepare(
+        `SELECT ${SELECT_COLS} FROM bookmarks
+         WHERE user_id = ? AND deleted_at IS NOT NULL
+         ORDER BY updated_at DESC, id ASC`
+      )
+      .all(userId);
+    return rows.map(rowToBookmark);
+  }
+
+  /**
    * Sync from client:
    * - create if missing (or merge into same folder+url twin when ids differ)
    * - update if client updatedAt is newer than server
    * - skip if server is newer (reported in conflicts)
    * - equal updatedAt → unchanged
-   * - replace: soft-delete local-only ids (safer if lastSyncAt provided)
+   * - tombstones (deletedAt set): soft-delete when client time wins (LWW)
+   * - sticky soft-delete: live payload cannot resurrect unless force=true
+   * - replace: soft-delete server ids missing from live payload
+   *   (knownIds always eligible; otherwise only rows with updated_at <= lastSyncAt)
    */
   static syncFromClient(
     userId,
     bookmarks,
-    { replace = false, lastSyncAt = null, force = false, mergeDuplicates = true } = {}
+    {
+      replace = false,
+      lastSyncAt = null,
+      force = false,
+      mergeDuplicates = true,
+      knownIds = null,
+    } = {}
   ) {
     userId = requireUserId(userId);
     const db = getDb();
@@ -598,6 +636,15 @@ class Bookmark {
          AND updated_at <= @lastSyncAt`
     );
 
+    // Client previously knew these ids and omitted them from the live set → delete
+    // even if another device bumped updated_at after this client's lastSyncAt.
+    const softDeleteMissingKnown = db.prepare(
+      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts
+       WHERE user_id = @userId AND deleted_at IS NULL
+         AND id NOT IN (SELECT value FROM json_each(@ids))
+         AND id IN (SELECT value FROM json_each(@knownIds))`
+    );
+
     const stats = {
       created: 0,
       updated: 0,
@@ -609,10 +656,13 @@ class Bookmark {
     const conflicts = [];
     /** @type {{ clientId: string, serverId: string, folder: string, url: string }[]} */
     const merges = [];
+    /** @type {Set<string>} server ids soft-deleted or confirmed deleted this run */
+    const tombstoneIdsTouched = new Set();
 
     /**
      * Apply update rules against an existing row (by resolved id).
      * Mutates payload.id to the resolved server id.
+     * @returns {'live'|'deleted'|'skipped'}
      */
     const applyAgainstExisting = (existing, payload, item, clientUpdatedAt) => {
       payload.id = existing.id;
@@ -625,15 +675,73 @@ class Bookmark {
           client: item,
         });
         stats.skipped += 1;
-        return;
+        return 'skipped';
       }
 
-      const resurrecting = Boolean(existing.deletedAt) && !payload.deleted_at;
+      const clientDeletedAt = payload.deleted_at || item.deletedAt || null;
+      const isTombstone = Boolean(clientDeletedAt);
+
+      // --- Tombstone: soft-delete when client revision wins (LWW on updated_at) ---
+      if (isTombstone && !force) {
+        const clientMs = Math.max(tsMs(clientDeletedAt), tsMs(clientUpdatedAt));
+        const serverMs = tsMs(existing.updatedAt);
+        // Already soft-deleted and client is not newer
+        if (existing.deletedAt && clientMs <= serverMs) {
+          stats.unchanged += 1;
+          tombstoneIdsTouched.add(existing.id);
+          return 'deleted';
+        }
+        // Client wins (delete wins ties against live rows)
+        if (clientMs >= serverMs) {
+          const delTs = clientDeletedAt || ts;
+          updateRow.run({
+            ...payload,
+            updated_at: delTs,
+            deleted_at: delTs,
+          });
+          stats.deleted += 1;
+          tombstoneIdsTouched.add(existing.id);
+          return 'deleted';
+        }
+        // Server has a newer live revision — keep it
+        conflicts.push({
+          id: existing.id,
+          reason: 'server_newer',
+          server: existing,
+          client: {
+            id: item.id || existing.id,
+            deletedAt: clientDeletedAt,
+            updatedAt: clientUpdatedAt,
+          },
+        });
+        stats.skipped += 1;
+        return existing.deletedAt ? 'deleted' : 'skipped';
+      }
+
+      // --- Sticky soft-delete: live payload must not resurrect (unless force) ---
+      if (existing.deletedAt && !isTombstone && !force) {
+        conflicts.push({
+          id: existing.id,
+          reason: 'server_deleted',
+          server: existing,
+          client: {
+            id: item.id || existing.id,
+            title: item.title,
+            url: item.url,
+            folder: item.folder,
+            position: item.position,
+            updatedAt: clientUpdatedAt,
+          },
+        });
+        stats.skipped += 1;
+        tombstoneIdsTouched.add(existing.id);
+        return 'deleted';
+      }
 
       if (force) {
         updateRow.run(payload);
         stats.updated += 1;
-        return;
+        return payload.deleted_at ? 'deleted' : 'live';
       }
 
       const clientMs = tsMs(clientUpdatedAt);
@@ -646,13 +754,14 @@ class Bookmark {
         Number(existing.position) !== Number(payload.position) ||
         String(existing.notes || '') !== String(payload.notes || '') ||
         serializeTags(existing.tags) !== String(payload.tags || '[]') ||
-        String(existing.favicon || '') !== String(payload.favicon || '') ||
-        resurrecting;
+        String(existing.favicon || '') !== String(payload.favicon || '');
 
       if (clientMs > serverMs) {
         updateRow.run(payload);
         stats.updated += 1;
-      } else if (clientMs < serverMs) {
+        return payload.deleted_at ? 'deleted' : 'live';
+      }
+      if (clientMs < serverMs) {
         conflicts.push({
           id: existing.id,
           reason: 'server_newer',
@@ -667,17 +776,23 @@ class Bookmark {
           },
         });
         stats.skipped += 1;
-      } else if (contentChanged) {
+        return existing.deletedAt ? 'deleted' : 'live';
+      }
+      if (contentChanged) {
         // Same timestamp but order/folder/title/url differ — still apply (reorder case)
         updateRow.run({ ...payload, updated_at: ts });
         stats.updated += 1;
-      } else {
-        stats.unchanged += 1;
+        return payload.deleted_at ? 'deleted' : 'live';
       }
+      stats.unchanged += 1;
+      return existing.deletedAt || payload.deleted_at ? 'deleted' : 'live';
     };
 
     const run = db.transaction((items) => {
-      const ids = [];
+      /** All resolved ids touched this run (live + tombstone). */
+      const seenIds = [];
+      /** Resolved ids that should remain active after this sync. */
+      const liveIds = [];
       // Within one payload, track folder+url → first server id so batch dups collapse
       /** @type {Map<string, string>} */
       const batchUrlIndex = new Map();
@@ -696,32 +811,61 @@ class Bookmark {
                 }
               })()
             : [];
-        const isDir = tagsArr.includes('__dir__') || item.url === '' || item.url == null;
-        if (!item.url && !item.id && !isDir) continue;
-        if (isDir && !item.title && !item.id) continue;
+        const clientDeletedAt = item.deletedAt ?? null;
+        const isTombstone = Boolean(clientDeletedAt);
+        const isDir =
+          !isTombstone &&
+          (tagsArr.includes('__dir__') || item.url === '' || item.url == null);
 
-        let id = item.id || uuidv4();
-        const clientUpdatedAt = item.updatedAt || ts;
+        // Tombstones only need an id; live rows need url/title as before
+        if (isTombstone) {
+          if (!item.id) continue;
+        } else {
+          if (!item.url && !item.id && !isDir) continue;
+          if (isDir && !item.title && !item.id) continue;
+        }
+
+        let id = item.id || randomUUID();
+        const clientUpdatedAt = item.updatedAt || clientDeletedAt || ts;
         const payload = {
           id,
           user_id: userId,
           title: item.title ?? '',
           url: item.url ?? '',
           folder: item.folder ?? '',
-          tags: serializeTags(isDir ? [...new Set([...tagsArr, '__dir__'])] : tagsArr),
+          tags: serializeTags(
+            isDir ? [...new Set([...tagsArr, '__dir__'])] : tagsArr
+          ),
           notes: item.notes ?? '',
           favicon: item.favicon ?? null,
           position: Number.isFinite(item.position) ? item.position : 0,
           created_at: item.createdAt || ts,
           updated_at: clientUpdatedAt,
-          deleted_at: item.deletedAt ?? null,
+          deleted_at: clientDeletedAt,
         };
 
         let existing = this.findById(userId, id, { includeDeleted: true });
 
+        // Tombstone for unknown id: record soft-deleted row so membership stays consistent
+        if (!existing && isTombstone) {
+          const delTs = clientDeletedAt || ts;
+          insert.run({
+            ...payload,
+            created_at: item.createdAt || delTs,
+            updated_at: delTs,
+            deleted_at: delTs,
+          });
+          stats.deleted += 1;
+          tombstoneIdsTouched.add(id);
+          seenIds.push(id);
+          continue;
+        }
+
         // Folder-scoped URL merge: client id is new but same folder+url already exists
+        // (skip for tombstones — they match by id only)
         if (
           !existing &&
+          !isTombstone &&
           mergeDuplicates &&
           !isDir &&
           isUrlBookmarkLike({ url: payload.url, tags: tagsArr })
@@ -740,14 +884,16 @@ class Bookmark {
               url: normalizeUrl(payload.url),
             });
             stats.merged += 1;
-            applyAgainstExisting(twin, payload, item, clientUpdatedAt);
-            ids.push(twin.id);
+            const outcome = applyAgainstExisting(twin, payload, item, clientUpdatedAt);
+            seenIds.push(twin.id);
+            if (outcome === 'live') liveIds.push(twin.id);
             batchUrlIndex.set(key, twin.id);
             continue;
           }
           batchUrlIndex.set(key, id);
         } else if (
           existing &&
+          !isTombstone &&
           mergeDuplicates &&
           !isDir &&
           isUrlBookmarkLike({ url: payload.url, tags: tagsArr })
@@ -761,26 +907,50 @@ class Bookmark {
             created_at: item.createdAt || ts,
             updated_at: clientUpdatedAt,
           });
-          stats.created += 1;
-          ids.push(id);
+          if (isTombstone) {
+            stats.deleted += 1;
+            tombstoneIdsTouched.add(id);
+            seenIds.push(id);
+          } else {
+            stats.created += 1;
+            seenIds.push(id);
+            liveIds.push(id);
+          }
           continue;
         }
 
-        applyAgainstExisting(existing, payload, item, clientUpdatedAt);
-        ids.push(existing.id);
+        const outcome = applyAgainstExisting(existing, payload, item, clientUpdatedAt);
+        seenIds.push(existing.id);
+        if (outcome === 'live') liveIds.push(existing.id);
       }
 
-      // Replace membership: never run on empty payload (would wipe the whole library).
-      // When replace=true with a non-empty client set, always soft-delete server rows
-      // not in that set — otherwise a client with a fresh ID map doubles the library
-      // (creates N new rows, leaves the previous N active).
-      // ids may contain duplicates after merges — unique for membership.
-      if (replace && ids.length > 0) {
-        const uniqueIds = [...new Set(ids)];
-        const idsJson = JSON.stringify(uniqueIds);
+      // Replace membership: soft-delete active server rows not in the live client set.
+      // Never run when the client sent no live rows (would wipe the library); upload uses force.
+      // Tombstones / sticky deletes are already applied above.
+      if (replace && liveIds.length > 0) {
+        const uniqueLive = [...new Set(liveIds)];
+        const idsJson = JSON.stringify(uniqueLive);
+        let deletedCount = 0;
+
+        const known = Array.isArray(knownIds)
+          ? [...new Set(knownIds.filter(Boolean).map(String))]
+          : [];
+        if (known.length > 0) {
+          const knownResult = softDeleteMissingKnown.run({
+            ts,
+            userId,
+            ids: idsJson,
+            knownIds: JSON.stringify(known),
+          });
+          deletedCount += knownResult.changes || 0;
+        }
+
         let result;
-        if (lastSyncAt && !force) {
+        if (force) {
+          result = softDeleteMissingAggressive.run({ ts, userId, ids: idsJson });
+        } else if (lastSyncAt) {
           // Safe: do not delete rows updated on server after client last synced
+          // (unless already removed via knownIds above)
           result = softDeleteMissingSafe.run({
             ts,
             userId,
@@ -788,16 +958,34 @@ class Bookmark {
             lastSyncAt,
           });
         } else {
-          // force, or first full replace without lastSyncAt
           result = softDeleteMissingAggressive.run({ ts, userId, ids: idsJson });
         }
-        stats.deleted = result.changes || 0;
+        deletedCount += result.changes || 0;
+        stats.deleted += deletedCount;
       }
 
-      return ids.length;
+      return seenIds.length;
     });
 
     const processed = run(Array.isArray(bookmarks) ? bookmarks : []);
+
+    // Tombstones for peers: soft-deletes since lastSyncAt, plus any touched this run
+    let tombstones = this.findDeleted(userId, { since: lastSyncAt || null });
+    if (!lastSyncAt && tombstoneIdsTouched.size > 0) {
+      const allDeleted = this.findDeleted(userId, { since: null });
+      tombstones = allDeleted.filter((b) => tombstoneIdsTouched.has(b.id));
+    } else if (tombstoneIdsTouched.size > 0) {
+      const byId = new Map(tombstones.map((b) => [b.id, b]));
+      for (const id of tombstoneIdsTouched) {
+        if (!byId.has(id)) {
+          const row = this.findById(userId, id, { includeDeleted: true });
+          if (row?.deletedAt) {
+            byId.set(id, row);
+          }
+        }
+      }
+      tombstones = [...byId.values()];
+    }
 
     return {
       processed,
@@ -810,6 +998,7 @@ class Bookmark {
       merges,
       conflicts,
       bookmarks: this.findAll(userId, { includeDeleted: false }),
+      tombstones,
     };
   }
 

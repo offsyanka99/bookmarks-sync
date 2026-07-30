@@ -1,6 +1,8 @@
 # Bookmarks Sync — Browser Extensions
 
-**Extension package version:** `1.1.0` (Chrome Web Store / XPI). Server is versioned separately (`package.json`).
+**Extension package version:** `1.1.3` (Chrome / Firefox source). Server is versioned separately (`package.json`).
+
+**Store submission:** [STORE-SUBMIT.md](./STORE-SUBMIT.md) · `npm run ext:prepare-store`
 
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 
@@ -83,7 +85,8 @@ Packaging / re-publish for the store: **[CHROME-STORE.md](./CHROME-STORE.md)**
 Temporary add-ons are **deleted when Firefox quits**. For a real install on **release Firefox**, use a **Mozilla-signed** `.xpi` (same extension id):
 
 ```text
-dist/bookmarks-sync-firefox-1.1.0.xpi
+dist/bookmarks-sync-firefox-1.1.3.xpi   # current (Mozilla-signed)
+dist/bookmarks-sync-firefox.xpi         # same as latest signed
 ```
 
 `about:addons` → gear → **Install Add-on From File…** → choose that file.  
@@ -135,7 +138,7 @@ bookmarks-extension/
 | Install Chrome (users) | [Chrome Web Store](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal) |
 | Pack Chrome store ZIP | `npm run ext:pack-chrome` → `dist/bookmarks-sync-chrome-*.zip` — see [CHROME-STORE.md](./CHROME-STORE.md) |
 | Pack unsigned Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
-| Install Firefox (release) | **`dist/bookmarks-sync-firefox-1.1.0.xpi`** (Mozilla-signed) — see FIREFOX-INSTALL.md |
+| Install Firefox (release) | **`dist/bookmarks-sync-firefox-1.1.3.xpi`** (Mozilla-signed) — see FIREFOX-INSTALL.md |
 | Load Chromium (dev) | Unpacked → **`chrome/`** |
 | Load Firefox (dev) | Temporary add-on → **`firefox/`** |
 
@@ -221,7 +224,7 @@ See [root README — API](../README.md#api-multi-user).
 | **`service_worker is currently disabled`** | Load **`firefox/`**, not `chrome/` |
 | Host / network error | Re-save Options and allow the API origin |
 | **`permissions.request may only be called from a user input handler`** (Firefox) | Use **Save** or **Test connection** (a real click). Reload the `firefox/` add-on after updating. |
-| **`NetworkError when attempting to fetch resource`** (Firefox only; Brave works) | Usually host access. **Remove and re-load** `firefox/` (manifest now includes `host_permissions`). Prefer `http://127.0.0.1:PORT`. Turn off **HTTPS-Only Mode** for that URL, or add an exception. Confirm API port (e.g. 31039), not admin. |
+| **`NetworkError when attempting to fetch resource`** (Firefox only; Brave works) | Usually host access. Click **Save** or **Test connection** and allow the API origin (`optional_host_permissions`). Prefer `http://127.0.0.1:PORT`. Turn off **HTTPS-Only Mode** for that URL, or add an exception. Confirm API port (e.g. 31039), not admin. |
 | `401` | Fresh API key; user must be active |
 | Wrong port | Use **API** port (`SERVER_PORT`), not admin |
 | Firefox gone after restart | Temporary add-on — load `firefox/` again |

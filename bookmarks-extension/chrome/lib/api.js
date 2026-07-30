@@ -188,18 +188,28 @@ export async function listBookmarks(settings, { includeDeleted = false } = {}) {
 /**
  * @param {{ apiBaseUrl: string, apiKey: string }} settings
  * @param {object[]} bookmarks
- * @param {{ replace?: boolean, force?: boolean, lastSyncAt?: string|null, confirmDestructive?: boolean }} [opts]
+ * @param {{
+ *   replace?: boolean,
+ *   force?: boolean,
+ *   lastSyncAt?: string|null,
+ *   confirmDestructive?: boolean,
+ *   knownIds?: string[]|null,
+ * }} [opts]
  */
 export async function syncBookmarks(settings, bookmarks, opts = {}) {
+  const body = {
+    bookmarks,
+    replace: Boolean(opts.replace),
+    force: Boolean(opts.force),
+    lastSyncAt: opts.lastSyncAt || null,
+    confirmDestructive: Boolean(opts.confirmDestructive),
+  };
+  if (Array.isArray(opts.knownIds) && opts.knownIds.length > 0) {
+    body.knownIds = opts.knownIds;
+  }
   return apiFetch(settings, '/api/bookmarks/sync', {
     method: 'POST',
-    json: {
-      bookmarks,
-      replace: Boolean(opts.replace),
-      force: Boolean(opts.force),
-      lastSyncAt: opts.lastSyncAt || null,
-      confirmDestructive: Boolean(opts.confirmDestructive),
-    },
+    json: body,
   });
 }
 

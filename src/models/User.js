@@ -1,4 +1,4 @@
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const { getDb } = require('../utils/db');
 const { hashPassword, verifyPassword, generateApiKey } = require('../utils/crypto');
 
@@ -117,7 +117,7 @@ class User {
     }
 
     const db = getDb();
-    const id = uuidv4();
+    const id = randomUUID();
     const ts = nowIso();
     const apiKey = generateApiKey();
 

@@ -1,7 +1,7 @@
 # Privacy Policy — Bookmarks Sync
 
 **Browser extension** (Chrome, Brave, Firefox)  
-**Last updated:** 15 July 2026  
+**Last updated:** 29 July 2026  
 **Project:** https://github.com/offsyanka99/bookmarks-sync
 
 ## Single purpose

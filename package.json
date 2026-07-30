@@ -1,6 +1,6 @@
 {
   "name": "bookmarks-sync",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Self-hosted multi-user bookmark sync server (SQLite + Node.js)",
   "main": "server.js",
   "scripts": {
@@ -12,11 +12,12 @@
     "ext:pack": "node bookmarks-extension/scripts/pack.mjs all",
     "ext:pack-chrome": "node bookmarks-extension/scripts/pack.mjs chrome",
     "ext:pack-firefox": "node bookmarks-extension/scripts/pack.mjs firefox",
+    "ext:prepare-store": "node bookmarks-extension/scripts/prepare-store.mjs",
     "ext:sign-firefox": "node bookmarks-extension/scripts/sign-firefox.mjs",
     "ext:lint-firefox": "npx --yes web-ext@8 lint --source-dir bookmarks-extension/firefox"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": [
     "bookmarks",
@@ -26,14 +27,13 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "better-sqlite3": "^11.8.1",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
+    "better-sqlite3": "^13.0.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "express-session": "^1.19.0",
-    "helmet": "^8.0.0",
-    "morgan": "^1.10.0",
-    "uuid": "^11.0.5",
+    "helmet": "^8.3.0",
+    "morgan": "^1.10.1",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"
   }

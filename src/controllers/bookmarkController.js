@@ -297,7 +297,11 @@ const bookmarkController = {
       const threshold = Number.isFinite(failsafePct) && failsafePct > 0 ? failsafePct : 50;
       if (replace && list.length > 0 && !confirmDestructive && !force) {
         const activeCount = Bookmark.count(userId(req), { includeDeleted: false });
-        const clientIds = list.map((b) => b?.id).filter(Boolean);
+        // Only live rows count as "kept"; tombstones (deletedAt set) are intentional deletes
+        const clientIds = list
+          .filter((b) => b && !b.deletedAt)
+          .map((b) => b?.id)
+          .filter(Boolean);
         const wouldDelete = Bookmark.countActiveNotInIds(userId(req), clientIds);
         const percent = activeCount > 0 ? (wouldDelete / activeCount) * 100 : 0;
         // Only trip when the library is large enough to matter
@@ -330,12 +334,14 @@ const bookmarkController = {
       }
 
       const mergeDuplicates = req.body.mergeDuplicates !== false;
+      const knownIds = Array.isArray(req.body.knownIds) ? req.body.knownIds : null;
 
       const result = Bookmark.syncFromClient(userId(req), list, {
         replace,
         lastSyncAt,
         force,
         mergeDuplicates,
+        knownIds,
       });
       const lastSync = new Date().toISOString();
       Bookmark.setMeta(`last_sync_at:${userId(req)}`, lastSync);
@@ -352,6 +358,7 @@ const bookmarkController = {
         deleted: result.deleted,
         merged: result.merged,
         conflicts: result.conflicts.length,
+        tombstones: (result.tombstones || []).length,
         replace,
         force,
         bookmarkCount: list.length,
@@ -369,6 +376,7 @@ const bookmarkController = {
         conflicts: result.conflicts,
         count: result.bookmarks.length,
         bookmarks: result.bookmarks,
+        tombstones: result.tombstones || [],
         lastSyncAt: lastSync,
       });
     } catch (err) {
@@ -411,12 +419,14 @@ const bookmarkController = {
       const lastSyncAt = req.body?.lastSyncAt || null;
 
       const mergeDuplicates = req.body?.mergeDuplicates !== false;
+      const knownIds = Array.isArray(req.body?.knownIds) ? req.body.knownIds : null;
 
       const result = Bookmark.syncFromClient(userId(req), list, {
         replace,
         lastSyncAt,
         force,
         mergeDuplicates,
+        knownIds,
       });
       Bookmark.setMeta(`last_import_at:${userId(req)}`, new Date().toISOString());
 
@@ -439,6 +449,7 @@ const bookmarkController = {
         conflicts: result.conflicts,
         count: result.bookmarks.length,
         bookmarks: result.bookmarks,
+        tombstones: result.tombstones || [],
       });
     } catch (err) {
       logger.error('import bookmarks failed', { err: err.message, stack: err.stack });

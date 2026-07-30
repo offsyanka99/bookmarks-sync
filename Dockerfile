@@ -1,5 +1,6 @@
 # Bookmarks Sync — API + admin UI
-FROM node:20-bookworm-slim AS build
+# Node 22 LTS (required by better-sqlite3@13)
+FROM node:22-bookworm-slim AS build
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
@@ -12,7 +13,7 @@ RUN npm install --omit=dev
 
 COPY . .
 
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends dumb-init \

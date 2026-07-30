@@ -1,10 +1,10 @@
 # Bookmarks Sync
 
-**Version:** `1.2.2`
+**Version:** `1.2.3`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
-**Stack:** Node.js + Express + SQLite · **Auth:** admin session (UI) + per-user API keys (REST / extension) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp.
+**Stack:** Node.js **22+** + Express **5** + SQLite · **Auth:** admin session (UI) + per-user API keys (REST / extension) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp; **deletes** use tombstones + sticky soft-deletes.
 
 **Multi-user model** (inspired by [Baikal](https://github.com/sabre-io/Baikal)-style admin accounts and [xBrowserSync](https://github.com/xbrowsersync)-style sync):
 
@@ -31,7 +31,15 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
 
-### What’s new in 1.2.2
+### What’s new in 1.2.3
+
+- **Multi-browser deletes:** sync tombstones + sticky soft-deletes (a delete on one browser no longer resurrects from another)
+- **Extension 1.1.3:** toolbar root mapping (Brave “Bookmarks bar” ↔ Firefox “Bookmarks Toolbar”), safer apply/order, optional host access only
+- **Firefox:** Mozilla-signed XPI in `dist/bookmarks-sync-firefox-1.1.3.xpi` (`strict_min_version` 140 / Android 142 for AMO data consent)
+- **Stack:** Node **≥22**, Express **5**, `better-sqlite3` 13; Docker image `node:22-bookworm-slim`; native `crypto.randomUUID()` (no `uuid` package)
+- Store prep: `npm run ext:prepare-store` · guide [`bookmarks-extension/STORE-SUBMIT.md`](./bookmarks-extension/STORE-SUBMIT.md)
+
+### 1.2.2
 
 - **`TIME_FORMAT` env** (`24h` default / `12h`): server-wide UI clock for admin **Created** timestamps and extension **Last sync** (and failsafe messages)
 - Exposed on public **`GET /info`** as `timeFormat`; extensions cache it from the server
@@ -177,7 +185,7 @@ Then open:
 | Admin portal (first run → setup) | http://127.0.0.1:31060/ |
 | API health | http://127.0.0.1:31059/health |
 
-Dev mode (auto-restart on file changes, Node 20+):
+Dev mode (auto-restart on file changes, Node 22+):
 
 ```bash
 npm run dev

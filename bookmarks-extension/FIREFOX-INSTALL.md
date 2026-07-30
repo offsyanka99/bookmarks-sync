@@ -14,31 +14,37 @@ For a **permanent** install that **survives restarts** and **keeps Options** (AP
 A **signed** release package is under `dist/`:
 
 ```text
-dist/bookmarks-sync-firefox-1.1.1.xpi   # current (Mozilla-signed, AMO-approved)
-dist/bookmarks-sync-firefox-1.1.0.xpi   # previous signed release
-dist/bookmarks-sync-firefox.xpi         # stable name = latest signed (1.1.1)
+dist/bookmarks-sync-firefox-1.1.3.xpi   # current (Mozilla-signed, AMO)
+dist/bookmarks-sync-firefox-1.1.1.xpi   # previous signed release
+dist/bookmarks-sync-firefox-1.1.0.xpi   # older signed release
+dist/bookmarks-sync-firefox.xpi         # stable name = latest signed (1.1.3)
 ```
 
-AMO may also name downloads like `befd3a8e446247cfa279-1.1.1.xpi` — same signed bytes; prefer the names above in the repo.
+AMO may also name downloads like `befd3a8e446247cfa279-1.1.3.xpi` — same signed bytes; prefer the names above in the repo.
 
 Works on **normal release Firefox** only when the file is **Mozilla-signed** (contains `META-INF/mozilla.rsa`).  
-Unsigned rebuilds only work on Developer Edition / Nightly (Option A) or after you sign (below).
+Requires **Firefox 140+** (desktop) / **142+** (Android) for this build.  
+Unsigned rebuilds only work on Developer Edition / Nightly (Option A) or after you re-sign (below).
+
+Store checklist: **[STORE-SUBMIT.md](./STORE-SUBMIT.md)** · prep: `npm run ext:prepare-store`.
 
 ### Install (signed XPI)
 
 1. Download the `.xpi` from the repo (`dist/` on GitHub, or your clone).
 2. Open Firefox → `about:addons`.
 3. Gear icon ⚙ → **Install Add-on From File…**
-4. Choose `dist/bookmarks-sync-firefox-1.1.1.xpi` (or the latest signed version).
-5. Confirm permissions → **Options** → API base URL + API key → **Save**.
+4. Choose `dist/bookmarks-sync-firefox-1.1.3.xpi` (or `dist/bookmarks-sync-firefox.xpi`).
+5. Confirm permissions → **Options** → API base URL + API key → **Save** (allow host access for that origin).
 6. **Test connection** → **Sync now** from the toolbar popup.
 
 Extension id (must stay the same for updates):  
 `bookmarks-sync@offsyanka99.github.io`
 
+Host access is **optional** (not granted for all sites at install). You must click **Save** or **Test connection** and allow the API origin.
+
 ---
 
-## Sign release 1.1.1 (maintainer checklist)
+## Sign release 1.1.3 (maintainer checklist)
 
 Source and lint are ready. Signing requires **your** AMO credentials (not stored in the repo).
 
@@ -46,12 +52,15 @@ Source and lint are ready. Signing requires **your** AMO credentials (not stored
 
 | Check | Status |
 |---|---|
-| Manifest version | `1.1.1` |
+| Manifest version | `1.1.3` |
 | Gecko id | `bookmarks-sync@offsyanka99.github.io` |
 | `data_collection_permissions` | `bookmarksInfo` (AMO requirement) |
-| `strict_min_version` | `128.0` |
+| `strict_min_version` (desktop) | `140.0` (required with `data_collection_permissions`) |
+| `gecko_android.strict_min_version` | `142.0` |
+| Host access | `optional_host_permissions` only (no required `host_permissions`) |
 | `web-ext lint` | `npm run ext:lint-firefox` → 0 errors |
-| Unsigned pack | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox-1.1.1.xpi` |
+| Signed release in repo | `dist/bookmarks-sync-firefox-1.1.3.xpi` (+ stable `dist/bookmarks-sync-firefox.xpi`) |
+| Rebuild unsigned | `npm run ext:pack-firefox` (re-sign before shipping) |
 
 ### 2. AMO API credentials (one-time)
 
@@ -81,14 +90,14 @@ This will:
 3. Write:
 
 ```text
-dist/bookmarks-sync-firefox-1.1.1.xpi
+dist/bookmarks-sync-firefox-1.1.3.xpi
 dist/bookmarks-sync-firefox.xpi
 ```
 
 Confirm the file is signed:
 
 ```bash
-unzip -l dist/bookmarks-sync-firefox-1.1.1.xpi | grep META-INF/mozilla.rsa
+unzip -l dist/bookmarks-sync-firefox-1.1.3.xpi | grep META-INF/mozilla.rsa
 ```
 
 ### 4. Optional — public AMO listing
@@ -105,6 +114,19 @@ Then finish listing text / review in the [AMO developer hub](https://addons.mozi
 2. Commit the **signed** XPIs under `dist/` (and this doc if version notes changed).
 3. Users update via **Install Add-on From File** with the same gecko id (settings kept).
 
+### What’s new in 1.1.3
+
+- Multi-browser **delete fix**: tombstones + sticky soft-deletes
+- Toolbar root mapping: Brave “Bookmarks bar” ↔ Firefox “Bookmarks Toolbar”
+- Optional host access only (AMO-friendly; grant origin on Save / Test connection)
+- Less toolbar reordering noise on apply
+
+### What’s new in 1.1.2
+
+- Multi-browser **delete fix**: client tombstones + server sticky soft-deletes (no resurrect from other browsers)
+- Merge applies remote deletes even when some unrelated conflicts exist
+- Requires Bookmarks Sync server with tombstone / sticky-delete support (this repo’s current server)
+
 ### What’s new in 1.1.1
 
 - Last sync timestamps follow server `TIME_FORMAT` (`24h` / `12h`) via `GET /info`
@@ -118,7 +140,7 @@ From the **repo root**:
 
 ```bash
 npm run ext:pack-firefox
-# → dist/bookmarks-sync-firefox-1.1.1.xpi  (unsigned)
+# → dist/bookmarks-sync-firefox-1.1.3.xpi  (unsigned)
 # → dist/bookmarks-sync-firefox.xpi        (same, unsigned)
 ```
 

@@ -2,7 +2,8 @@
  * End-to-end sync: local browser tree ↔ bookmarks-sync server.
  *
  * Strategies:
- * - merge: push only changed locals (timestamp bump), keep server-newer others, apply result
+ * - merge: push changed locals + tombstones for local deletes; sticky server deletes;
+ *   apply active set and remote tombstones (removeLocalMissing)
  * - download: pull server only and rewrite local to match
  * - upload: force-push full local tree as source of truth
  */
@@ -41,6 +42,7 @@ import {
   clearManagedBookmarkRoots,
   toServerPayload,
   applyServerBookmarks,
+  removeLocalByServerIds,
   snapshotFromServerBookmarks,
 } from './bookmarks.js';
 import { debugLog } from './debugLog.js';
@@ -250,6 +252,24 @@ export async function runSync(opts = {}) {
   }
 }
 
+/**
+ * Server ids that still have a *live* newer version — do not remove those locally.
+ * server_deleted / tombstone conflicts must NOT protect the local copy.
+ * @param {object[]} conflicts
+ * @returns {Set<string>}
+ */
+function protectServerIdsFromConflicts(conflicts) {
+  const protect = new Set();
+  for (const c of conflicts || []) {
+    if (!c || c.reason !== 'server_newer') continue;
+    const server = c.server;
+    if (server?.deletedAt) continue;
+    const id = server?.id || c.id;
+    if (id) protect.add(String(id));
+  }
+  return protect;
+}
+
 async function runMergeStrategy(settings, opts = {}) {
   const local = await collectLocalBookmarks();
   const idMap = await getIdMap();
@@ -257,11 +277,20 @@ async function runMergeStrategy(settings, opts = {}) {
   const snapshot = await getSyncSnapshot();
 
   const mapSize = Object.keys(idMap.localToServer || {}).length;
-  // Only bump updatedAt for items whose signature changed vs last successful sync
-  const { payload, idMap: mapAfterPushPrep } = toServerPayload(local, idMap, {
+  // Only bump updatedAt for items whose signature changed vs last successful sync.
+  // Emit tombstones for snapshot ids no longer present locally.
+  const {
+    payload,
+    idMap: mapAfterPushPrep,
+    knownIds,
+  } = toServerPayload(local, idMap, {
     snapshot,
     bumpAll: false,
+    emitTombstones: true,
   });
+
+  const livePayload = payload.filter((p) => !p._tombstone && !p.deletedAt);
+  const tombstonePayload = payload.filter((p) => p._tombstone || p.deletedAt);
 
   const canReplaceSafely =
     Boolean(meta.lastSyncAt) && mapSize > 0 && local.length > 0;
@@ -277,31 +306,87 @@ async function runMergeStrategy(settings, opts = {}) {
     force: Boolean(opts.force),
     lastSyncAt: meta.lastSyncAt || null,
     confirmDestructive: Boolean(opts.confirmDestructive),
+    knownIds: knownIds || Object.keys(snapshot),
   });
 
   let nextMap = mapAfterPushPrep;
   const serverCount = (serverResult.bookmarks || []).length;
-  const pushedIds = new Set(payload.map((p) => p.id));
   const serverIds = new Set((serverResult.bookmarks || []).map((b) => b.id));
-  // Folder rows have empty url — still on server list
-  const pushFullyApplied = [...pushedIds].every((id) => serverIds.has(id));
+  const mergeClientToServer = new Map(
+    (serverResult.merges || [])
+      .filter((m) => m?.clientId && m?.serverId)
+      .map((m) => [String(m.clientId), String(m.serverId)])
+  );
+  // Ids confirmed deleted on server (sticky delete / returned tombstones)
+  const deletedOnServer = new Set(
+    (serverResult.tombstones || []).map((t) => t?.id).filter(Boolean).map(String)
+  );
+  for (const c of serverResult.conflicts || []) {
+    if (c?.reason === 'server_deleted') {
+      const id = c.server?.id || c.id;
+      if (id) deletedOnServer.add(String(id));
+    }
+  }
+  // Live rows should appear on the active server list, or be acknowledged as server-deleted.
+  // Account for folder+url merges remapping client UUIDs → existing server ids.
+  const livePushApplied = livePayload.every((p) => {
+    const id = String(p.id);
+    const resolved = mergeClientToServer.get(id) || id;
+    return serverIds.has(resolved) || deletedOnServer.has(resolved) || deletedOnServer.has(id);
+  });
+  const protectServerIds = protectServerIdsFromConflicts(serverResult.conflicts);
+
+  // Apply remote deletes even when some unrelated conflicts exist.
+  // Only block full membership reconcile when live pushes failed to land.
   const removeLocalMissing =
     settings.removeLocalMissing !== false &&
-    serverCount > 0 &&
     canReplaceSafely &&
-    pushFullyApplied &&
-    (serverResult.conflicts || []).length === 0;
+    livePushApplied &&
+    (serverCount > 0 ||
+      tombstonePayload.length > 0 ||
+      deletedOnServer.size > 0 ||
+      (serverResult.tombstones || []).length > 0);
 
   // Server may have merged client UUIDs into existing folder+url rows
   nextMap = applyServerMerges(nextMap, serverResult.merges);
 
+  // Explicit tombstones from the server (soft-deletes since lastSyncAt / this run)
+  const remoteTombstoneIds = (serverResult.tombstones || [])
+    .map((t) => t?.id)
+    .filter(Boolean)
+    .filter((id) => !protectServerIds.has(String(id)));
+  // Also remove anything we sent as a tombstone that is no longer active on server
+  for (const t of tombstonePayload) {
+    if (t?.id && !serverIds.has(t.id) && !protectServerIds.has(String(t.id))) {
+      remoteTombstoneIds.push(t.id);
+    }
+  }
+  // server_deleted conflicts: server kept the soft-delete — drop local copy
+  for (const c of serverResult.conflicts || []) {
+    if (c?.reason === 'server_deleted' && (c.server?.id || c.id)) {
+      remoteTombstoneIds.push(c.server?.id || c.id);
+    }
+  }
+
+  let tombstoneRemoved = 0;
+  let tombstoneOps = 0;
+  if (remoteTombstoneIds.length > 0) {
+    const tr = await removeLocalByServerIds(remoteTombstoneIds, nextMap);
+    nextMap = tr.idMap;
+    tombstoneRemoved = tr.removed;
+    tombstoneOps = tr.ops;
+  }
+
   const apply = await applyServerBookmarks(serverResult.bookmarks || [], nextMap, {
     syncRoot: settings.syncRoot,
     removeLocalMissing,
+    protectServerIds,
     matchByUrl: settings.matchByUrl !== false,
   });
 
   nextMap = apply.idMap;
+  apply.removed = (apply.removed || 0) + tombstoneRemoved;
+  apply.ops = (apply.ops || 0) + tombstoneOps;
   await saveIdMap(nextMap);
 
   const result = buildResult({
@@ -311,8 +396,10 @@ async function runMergeStrategy(settings, opts = {}) {
     lastSyncAt: serverResult.lastSyncAt || new Date().toISOString(),
   });
   result._snapshot = snapshotFromServerBookmarks(serverResult.bookmarks || []);
-  result.localChanged = payload.filter((p) => p._changed).length;
+  result.localChanged = livePayload.filter((p) => p._changed).length;
+  result.tombstonesSent = tombstonePayload.length;
   result.server.merged = serverResult.merged || 0;
+  result.server.tombstones = (serverResult.tombstones || []).length;
   return result;
 }
 
@@ -423,8 +510,10 @@ async function runUploadStrategy(settings, opts = {}) {
     );
   }
   const idMap = await getIdMap();
-  const { payload, idMap: mapAfterPushPrep } = toServerPayload(local, idMap, {
+  // Upload is a full live-tree replace; no tombstones (force wipe handles membership).
+  const { payload, idMap: mapAfterPushPrep, knownIds } = toServerPayload(local, idMap, {
     bumpAll: true,
+    emitTombstones: false,
   });
 
   // Upload uses force=true (server failsafe skipped); still pre-check via list when possible
@@ -473,6 +562,7 @@ async function runUploadStrategy(settings, opts = {}) {
     lastSyncAt: null,
     // force skips server failsafe; confirmDestructive used for client-side check above
     confirmDestructive: Boolean(opts.confirmDestructive),
+    knownIds: knownIds || null,
   });
 
   let nextMap = applyServerMerges(mapAfterPushPrep, serverResult.merges);

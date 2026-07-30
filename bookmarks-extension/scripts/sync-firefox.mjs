@@ -80,16 +80,27 @@ function syncIconsFromShared() {
   }
 }
 
-/** Firefox-only gecko block (AMO data consent + min version for optional_host_permissions). */
+/**
+ * Firefox-only browser_specific_settings.
+ *
+ * data_collection_permissions requires Firefox desktop 140+ and Android 142+
+ * (AMO built-in consent). Setting lower strict_min_version triggers linter warnings.
+ * @see https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/
+ */
 function geckoSettings() {
   return {
     id: 'bookmarks-sync@offsyanka99.github.io',
-    // optional_host_permissions needs Firefox 128+; also covers modern MV3 baseline
-    strict_min_version: '128.0',
+    strict_min_version: '140.0',
     // Required for new AMO submissions — bookmarks sync to the user's own server
     data_collection_permissions: {
       required: ['bookmarksInfo'],
     },
+  };
+}
+
+function geckoAndroidSettings() {
+  return {
+    strict_min_version: '142.0',
   };
 }
 
@@ -102,6 +113,7 @@ function buildFirefoxManifestFallback(version) {
       'Sync browser bookmarks with your self-hosted bookmarks-sync server.',
     browser_specific_settings: {
       gecko: geckoSettings(),
+      gecko_android: geckoAndroidSettings(),
     },
     icons: {
       16: 'icons/icon16.png',
@@ -127,9 +139,9 @@ function buildFirefoxManifestFallback(version) {
       type: 'module',
     },
     permissions: ['bookmarks', 'storage', 'alarms', 'notifications'],
-    host_permissions: ['http://*/*', 'https://*/*'],
+    // Optional only — AMO rejects install-time broad host access. User grants
+    // their API origin via Save / Test connection (permissions.request).
     optional_host_permissions: ['http://*/*', 'https://*/*'],
-    optional_permissions: ['http://*/*', 'https://*/*'],
   };
 }
 
@@ -168,15 +180,21 @@ try {
   };
   delete ff.minimum_chrome_version;
   delete ff.service_worker;
-  ff.host_permissions = ['http://*/*', 'https://*/*'];
+  // Match Chrome: optional host access only (self-hosted API URL chosen by user).
+  // Required host_permissions for http(s)://*/* causes AMO review friction.
+  delete ff.host_permissions;
+  delete ff.optional_permissions;
   ff.optional_host_permissions = ['http://*/*', 'https://*/*'];
-  ff.optional_permissions = ['http://*/*', 'https://*/*'];
-  // Always re-apply gecko block so AMO-required keys cannot drift
+  // Always re-apply gecko / gecko_android so AMO-required keys cannot drift
   ff.browser_specific_settings = {
     ...(ff.browser_specific_settings || {}),
     gecko: {
       ...(ff.browser_specific_settings?.gecko || {}),
       ...geckoSettings(),
+    },
+    gecko_android: {
+      ...(ff.browser_specific_settings?.gecko_android || {}),
+      ...geckoAndroidSettings(),
     },
   };
   fs.writeFileSync(firefoxManifestPath, `${JSON.stringify(ff, null, 2)}\n`);

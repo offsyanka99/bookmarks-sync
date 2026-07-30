@@ -19,6 +19,9 @@ export {
   normalizeUrl,
   urlsMatch,
   classifyRootNode,
+  isFixedBrowserRootId,
+  kindFromFixedRootId,
+  isRootLikeTitle,
   parentIdForRoot,
   parentDepth,
   msToIso,
@@ -34,4 +37,5 @@ export {
   toServerPayload,
   snapshotFromServerBookmarks,
   applyServerBookmarks,
+  removeLocalByServerIds,
 } from './treeApply.js';

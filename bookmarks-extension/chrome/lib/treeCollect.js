@@ -4,9 +4,10 @@
 
 import {
   DIR_TAG,
-  ROOT_TITLES,
   encodeFolder,
   classifyRootNode,
+  kindFromFixedRootId,
+  isFixedBrowserRootId,
 } from './folderCodec.js';
 import { debugWarn } from './debugLog.js';
 
@@ -20,8 +21,9 @@ export async function getRootIds() {
   let menuId = null;
   let mobileId = null;
 
+  // Only the tree's direct children are browser roots (title match allowed here).
   for (const c of children) {
-    const kind = classifyRootNode(c);
+    const kind = classifyRootNode(c, { allowTitleMatch: true });
     if (kind === 'toolbar') toolbarId = c.id;
     if (kind === 'other') otherId = c.id;
     if (kind === 'menu') menuId = c.id;
@@ -76,12 +78,18 @@ export async function clearManagedBookmarkRoots() {
 
 /**
  * Collect folders + URL bookmarks with mixed sibling positions.
+ *
+ * Logical roots (toolbar/other/menu/mobile) are identified by fixed browser ids
+ * or top-level title match only — never by nested folder titles. That keeps
+ * Brave's "Bookmarks bar" and Firefox's "Bookmarks Toolbar" as the same
+ * `toolbar:` root without treating user folders as new roots.
  */
 export async function collectLocalBookmarks() {
   const tree = await chrome.bookmarks.getTree();
+  const treeRootId = tree[0] ? String(tree[0].id) : '0';
   const out = [];
 
-  function walk(nodes, pathParts, rootKind) {
+  function walk(nodes, pathParts, rootKind, underManagedRoot) {
     let pos = 0;
     for (const node of nodes || []) {
       if (node.url) {
@@ -98,13 +106,25 @@ export async function collectLocalBookmarks() {
         });
         pos += 1;
       } else if (node.children) {
-        const classified = classifyRootNode(node);
+        const parentId = node.parentId != null ? String(node.parentId) : '';
+        const isTopLevel = !parentId || parentId === '0' || parentId === treeRootId;
+
+        // Fixed browser root ids always re-root (toolbar_____ / Chromium "1", …).
+        // Title match only at the tree's top level — never for nested folders.
+        let classified = kindFromFixedRootId(node.id);
+        if (!classified && isTopLevel) {
+          classified = classifyRootNode(node, { allowTitleMatch: true });
+        }
+
         if (classified) {
-          walk(node.children, [], classified);
+          walk(node.children, [], classified, true);
           continue;
         }
-        if (!node.parentId || node.parentId === '0' || ROOT_TITLES.has(node.title || '')) {
-          walk(node.children, pathParts, rootKind || 'other');
+
+        // Skip non-bookmark pseudo-nodes at the tree root without treating
+        // them as user folders (e.g. rare containers). Nested fixed roots only.
+        if (isTopLevel && !underManagedRoot && isFixedBrowserRootId(node.id)) {
+          walk(node.children, pathParts, rootKind || 'other', underManagedRoot);
           continue;
         }
 
@@ -121,11 +141,17 @@ export async function collectLocalBookmarks() {
           dateGroupModified: node.dateGroupModified,
         });
         pos += 1;
-        walk(node.children, [...pathParts, node.title || 'Folder'], rootKind || 'other');
+        walk(
+          node.children,
+          [...pathParts, node.title || 'Folder'],
+          rootKind || 'other',
+          underManagedRoot
+        );
       }
     }
   }
 
-  walk(tree[0]?.children || tree, [], 'other');
+  // Top-level: allow title match so Brave "Bookmarks bar" / Firefox "Bookmarks Toolbar" map correctly.
+  walk(tree[0]?.children || tree, [], 'other', false);
   return out;
 }
