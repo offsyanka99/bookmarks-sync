@@ -115,10 +115,10 @@ Extension package: [`bookmarks-extension/`](./bookmarks-extension/) — see [Bro
 ```
 bookmarks-sync/
 ├── package.json
-├── server.js                 # Starts API + admin servers
+├── server.js                 # API + admin apps; listens when run as main
 ├── .env / .env.example
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml        # Local build or GHCR image
 ├── public/                   # Admin CSS, favicons, brand icons
 ├── assets/                   # Source brand / extension icon masters
 ├── data/
@@ -130,6 +130,10 @@ bookmarks-sync/
 │   ├── middleware/           # Session (admin) + API key (API)
 │   ├── views/
 │   └── utils/
+├── tests/                    # node:test + supertest (npm test)
+├── .github/workflows/
+│   ├── ci.yml                # npm test on push/PR
+│   └── docker-publish.yml    # push image to ghcr.io on v* tags
 ├── bookmarks-extension/
 │   ├── chrome/                    # Chrome source (store + load unpacked)
 │   ├── firefox/                   # Firefox build (sync from chrome/)
@@ -144,7 +148,7 @@ bookmarks-sync/
 ├── docs/
 │   ├── PRIVACY.md / privacy.html     # Extension privacy policy
 │   ├── screenshots/                  # README screenshots
-│   └── truenas-scale.compose.yaml    # TrueNAS SCALE custom app example
+│   └── truenas-scale.compose.yaml    # TrueNAS SCALE custom app (GHCR image)
 └── README.md
 ```
 
@@ -195,6 +199,14 @@ Dev mode (auto-restart on file changes, Node 22+):
 ```bash
 npm run dev
 ```
+
+### Tests
+
+```bash
+npm test
+```
+
+Uses Node’s built-in test runner (`node:test`) and [supertest](https://github.com/ladjs/supertest) against the Express apps **without** binding ports. Each test file runs in an isolated process with a temporary SQLite DB. CI runs the same command on every push to `main` (see [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
 
 ### First-time admin (recommended)
 
@@ -627,7 +639,35 @@ curl -s "$BASE/api/bookmarks/export" \
 
 `.dockerignore` excludes `.env`, `data/`, and `node_modules/` so secrets and the SQLite DB are never copied into image layers.
 
-Expose **both** ports and pass **strong** secrets (production fails closed without them):
+### Pre-built image (GHCR)
+
+Version tags are published to GitHub Container Registry on each `v*` release ([workflow](./.github/workflows/docker-publish.yml)):
+
+```text
+ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+ghcr.io/offsyanka99/bookmarks-sync:latest
+```
+
+Package page: [ghcr.io/offsyanka99/bookmarks-sync](https://github.com/offsyanka99/bookmarks-sync/pkgs/container/bookmarks-sync)
+
+```bash
+docker pull ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+
+docker run -d \
+  --name bookmarks-sync \
+  -p 31059:31059 \
+  -p 31060:31060 \
+  -e SERVER_PORT=31059 \
+  -e ADMIN_PORT=31060 \
+  -e DB_PATH=/app/data/bookmarks.db \
+  -e NODE_ENV=production \
+  -v bookmarks-sync-data:/app/data \
+  ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+```
+
+If the package is private, `docker login ghcr.io` with a GitHub PAT that has `read:packages`. Public packages pull without login.
+
+### Build locally
 
 ```bash
 docker build -t bookmarks-sync:latest .
@@ -650,7 +690,12 @@ Optional: pass `-e ADMIN_PASSWORD=...` and/or `-e SESSION_SECRET=...` for headle
 ### docker-compose
 
 ```bash
+# Build from local Dockerfile (default in docker-compose.yml)
 docker compose up -d --build
+
+# Or pull from GHCR: set image: ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+# and comment out build: in docker-compose.yml, then:
+# docker compose up -d
 ```
 
 No required secrets. Database + auto session secret: `/app/data` volume.  
@@ -658,7 +703,7 @@ Optional env: `ADMIN_PASSWORD`, `SESSION_SECRET`, `SESSION_MAX_AGE_MINUTES` (see
 
 ### TrueNAS SCALE (custom app YAML)
 
-Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**):
+Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**). Defaults to the **GHCR image** `ghcr.io/offsyanka99/bookmarks-sync:1.2.4`:
 
 **[`docs/truenas-scale.compose.yaml`](./docs/truenas-scale.compose.yaml)**
 
@@ -671,7 +716,7 @@ Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits �
    ```
    The example YAML sets `user: "568:568"`. Without matching ownership you get `EACCES: permission denied, mkdir '/app/data/logs'` and the container restarts.
    (Plain Docker outside TrueNAS still uses image default uid **1001** — see `Dockerfile`.)
-3. Copy the example YAML into **Apps → Custom App / Install via YAML** (set host path under `volumes:`).
+3. Copy the example YAML into **Apps → Custom App / Install via YAML** (set host path under `volumes:`). Prefer the `image: ghcr.io/...` line; optional `build:` from Git is commented as a fallback.
 4. Keep `SERVER_HOST=0.0.0.0` (listen address inside the container — not your NAS LAN IP).
 5. After deploy:
    - **Admin UI**: `http://NAS-IP:31040` → complete **`/setup`** (password for `admin`)

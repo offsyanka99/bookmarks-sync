@@ -1,5 +1,8 @@
 services:
   bookmarks-sync:
+    # Prefer a pre-built image from GHCR (tags: latest, 1.2.4, 1.2, 1):
+    #   image: ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+    # Or build locally from this repo (default):
     build: .
     container_name: bookmarks-sync
     ports:

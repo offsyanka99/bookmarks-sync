@@ -252,63 +252,84 @@ adminApp.use((err, req, res, _next) => {
   res.status(500).type('html').send('<h1>Internal server error</h1>');
 });
 
-// DB + optional env bootstrap + restore log level
-// (no ADMIN_PASSWORD → first-run /setup in admin UI; weak env password fails closed in production)
-getDb();
-bootstrapAdmin();
-loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));
-
 /**
- * Host/ports used only in startup log URLs (not the bind address).
- * SERVER_HOST=0.0.0.0 is correct for listening; logs default to 127.0.0.1 unless
- * PUBLIC_HOST is set (e.g. TrueNAS LAN IP). PUBLIC_*_PORT for host-mapped ports.
+ * Initialize DB, optional env bootstrap, and restored log level.
+ * Safe to call once per process (tests call this via helpers).
  */
-const publicHost = (process.env.PUBLIC_HOST || '').trim() || (HOST === '0.0.0.0' ? '127.0.0.1' : HOST);
-const publicApiPort = Number(process.env.PUBLIC_API_PORT) || API_PORT;
-const publicAdminPort = Number(process.env.PUBLIC_ADMIN_PORT) || ADMIN_PORT;
-const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'bookmarks.db');
-const logCfg = getLogConfig();
-
-const apiServer = apiApp.listen(API_PORT, HOST, () => {
-  logger.info('API listening', {
-    url: `http://${publicHost}:${publicApiPort}`,
-    port: API_PORT,
-    bind: `${HOST}:${API_PORT}`,
-  });
-});
-
-const adminServer = adminApp.listen(ADMIN_PORT, HOST, () => {
-  logger.info('Admin UI listening', {
-    url: `http://${publicHost}:${publicAdminPort}/`,
-    port: ADMIN_PORT,
-    bind: `${HOST}:${ADMIN_PORT}`,
-    sessionMaxAgeMinutes: resolveSessionMaxAgeMinutes(),
-  });
-  logger.info('Runtime paths', {
-    database: dbPath,
-    logDir: LOG_DIR,
-    logLevel: logCfg.level,
-    logToStdout: logCfg.logToStdout,
-    logToFile: logCfg.logToFile,
-  });
-});
-
-function shutdown(signal) {
-  logger.info(`${signal} received, shutting down`);
-  let closed = 0;
-  const done = () => {
-    closed += 1;
-    if (closed >= 2) {
-      closeDb();
-      process.exit(0);
-    }
-  };
-  apiServer.close(done);
-  adminServer.close(done);
-  setTimeout(() => process.exit(1), 10000).unref();
+function initRuntime() {
+  // no ADMIN_PASSWORD → first-run /setup in admin UI; weak env password fails closed in production
+  getDb();
+  bootstrapAdmin();
+  loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+/**
+ * Bind API + admin HTTP servers. Only used when this file is the process entrypoint
+ * (not when required by tests).
+ * @returns {{ apiServer: import('http').Server, adminServer: import('http').Server }}
+ */
+function start() {
+  initRuntime();
 
-module.exports = { apiApp, adminApp };
+  /**
+   * Host/ports used only in startup log URLs (not the bind address).
+   * SERVER_HOST=0.0.0.0 is correct for listening; logs default to 127.0.0.1 unless
+   * PUBLIC_HOST is set (e.g. TrueNAS LAN IP). PUBLIC_*_PORT for host-mapped ports.
+   */
+  const publicHost =
+    (process.env.PUBLIC_HOST || '').trim() || (HOST === '0.0.0.0' ? '127.0.0.1' : HOST);
+  const publicApiPort = Number(process.env.PUBLIC_API_PORT) || API_PORT;
+  const publicAdminPort = Number(process.env.PUBLIC_ADMIN_PORT) || ADMIN_PORT;
+  const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'bookmarks.db');
+  const logCfg = getLogConfig();
+
+  const apiServer = apiApp.listen(API_PORT, HOST, () => {
+    logger.info('API listening', {
+      url: `http://${publicHost}:${publicApiPort}`,
+      port: API_PORT,
+      bind: `${HOST}:${API_PORT}`,
+    });
+  });
+
+  const adminServer = adminApp.listen(ADMIN_PORT, HOST, () => {
+    logger.info('Admin UI listening', {
+      url: `http://${publicHost}:${publicAdminPort}/`,
+      port: ADMIN_PORT,
+      bind: `${HOST}:${ADMIN_PORT}`,
+      sessionMaxAgeMinutes: resolveSessionMaxAgeMinutes(),
+    });
+    logger.info('Runtime paths', {
+      database: dbPath,
+      logDir: LOG_DIR,
+      logLevel: logCfg.level,
+      logToStdout: logCfg.logToStdout,
+      logToFile: logCfg.logToFile,
+    });
+  });
+
+  function shutdown(signal) {
+    logger.info(`${signal} received, shutting down`);
+    let closed = 0;
+    const done = () => {
+      closed += 1;
+      if (closed >= 2) {
+        closeDb();
+        process.exit(0);
+      }
+    };
+    apiServer.close(done);
+    adminServer.close(done);
+    setTimeout(() => process.exit(1), 10000).unref();
+  }
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
+  return { apiServer, adminServer };
+}
+
+if (require.main === module) {
+  start();
+}
+
+module.exports = { apiApp, adminApp, initRuntime, start };

@@ -32,11 +32,13 @@ services:
     # TrueNAS SCALE Apps user (not the image default uid 1001)
     user: "568:568"
     # --- Image source (pick one) -------------------------------------------
-    # A) Build from GitHub (NAS needs outbound access to GitHub)
-    build:
-      context: https://github.com/offsyanka99/bookmarks-sync.git#main
-    # B) Or use a pre-built image you pushed (comment out build: above):
-    # image: ghcr.io/YOURUSER/bookmarks-sync:1.2.2
+    # A) Pre-built image from GitHub Container Registry (recommended)
+    #    Tags: latest | 1.2.4 | 1.2 | 1  — published on each v* release
+    #    Package: https://github.com/offsyanka99/bookmarks-sync/pkgs/container/bookmarks-sync
+    image: ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+    # B) Or build from source on the NAS (comment out image: above):
+    # build:
+    #   context: https://github.com/offsyanka99/bookmarks-sync.git#main
 
     container_name: bookmarks-sync
     restart: unless-stopped
