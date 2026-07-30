@@ -14,6 +14,7 @@ router.post('/login', adminController.login);
 router.post('/logout', adminController.logout);
 
 // Admin-only
+router.get('/session', requireAdmin, adminController.sessionPing);
 router.get('/', requireAdmin, adminController.listUsers);
 router.post('/users', requireAdmin, adminController.createUser);
 router.post('/users/:id/regenerate-key', requireAdmin, adminController.regenerateKey);

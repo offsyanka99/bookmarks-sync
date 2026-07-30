@@ -112,8 +112,14 @@ class User {
         { code: 'VALIDATION' }
       );
     }
-    if (!password || String(password).length < 1) {
-      throw Object.assign(new Error('Password is required'), { code: 'VALIDATION' });
+
+    // Passwords are for admin portal login only. Regular users use API keys.
+    let passwordHash = '';
+    if (isAdmin) {
+      if (!password || String(password).length < 1) {
+        throw Object.assign(new Error('Password is required for admin users'), { code: 'VALIDATION' });
+      }
+      passwordHash = hashPassword(password);
     }
 
     const db = getDb();
@@ -130,7 +136,7 @@ class User {
       ).run({
         id,
         username: normalized,
-        password_hash: hashPassword(password),
+        password_hash: passwordHash,
         display_name: displayName || normalized,
         api_key: apiKey,
         is_admin: isAdmin ? 1 : 0,
@@ -150,6 +156,13 @@ class User {
   static updatePassword(id, password) {
     if (!password || String(password).length < 1) {
       throw Object.assign(new Error('Password is required'), { code: 'VALIDATION' });
+    }
+    const target = this.findById(id);
+    if (!target) return false;
+    if (!target.isAdmin) {
+      throw Object.assign(new Error('Password can only be set for admin users'), {
+        code: 'VALIDATION',
+      });
     }
     const db = getDb();
     const result = db

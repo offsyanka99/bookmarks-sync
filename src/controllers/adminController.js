@@ -8,6 +8,7 @@ const { resetDatabase } = require('../utils/db');
 const {
   getAdminPasswordError,
   resolveBootstrapAdminUsername,
+  resolveSessionMaxAgeMs,
 } = require('../utils/securityConfig');
 const {
   logger,
@@ -141,7 +142,23 @@ const adminController = {
     if (req.session?.user?.isAdmin) {
       return res.redirect('/');
     }
-    res.type('html').send(loginPage({ error: null }));
+    const expired =
+      req.query.expired === '1' ||
+      req.query.expired === 'true' ||
+      req.query.reason === 'session';
+    res.type('html').send(
+      loginPage({
+        error: expired ? 'Your session expired. Please sign in again.' : null,
+      })
+    );
+  },
+
+  /** Lightweight probe for the admin UI session watchdog (JSON clients). */
+  sessionPing(req, res) {
+    res
+      .status(204)
+      .set('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+      .end();
   },
 
   login(req, res) {
@@ -235,26 +252,43 @@ const adminController = {
       const dup = Bookmark.findDuplicates(u.id);
       duplicateExtras[u.id] = dup.extraCount;
     }
-    res.type('html').send(
-      usersPage({
-        user: req.user,
-        users,
-        flash: takeFlash(req),
-        counts,
-        duplicateExtras,
-        logConfig: getLogConfig(),
-        timeFormat: resolveTimeFormat(),
-      })
-    );
+    res
+      .type('html')
+      .set(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, private'
+      )
+      .set('Pragma', 'no-cache')
+      .send(
+        usersPage({
+          user: req.user,
+          users,
+          flash: takeFlash(req),
+          counts,
+          duplicateExtras,
+          logConfig: getLogConfig(),
+          timeFormat: resolveTimeFormat(),
+          sessionMaxAgeMs: resolveSessionMaxAgeMs(),
+        })
+      );
   },
 
   createUser(req, res) {
     try {
+      const isAdmin = req.body.isAdmin === '1' || req.body.isAdmin === 'on';
+      const password = isAdmin ? req.body.password : undefined;
+      if (isAdmin) {
+        const passwordError = getAdminPasswordError(password);
+        if (passwordError) {
+          setFlash(req, 'error', passwordError);
+          return res.redirect('/');
+        }
+      }
       const created = User.create({
         username: req.body.username,
-        password: req.body.password,
+        password,
         displayName: req.body.displayName || '',
-        isAdmin: req.body.isAdmin === '1' || req.body.isAdmin === 'on',
+        isAdmin,
       });
       logger.info('User created', {
         username: created.username,
@@ -294,6 +328,20 @@ const adminController = {
 
   setPassword(req, res) {
     try {
+      const target = User.findById(req.params.id);
+      if (!target) {
+        setFlash(req, 'error', 'User not found');
+        return res.redirect('/');
+      }
+      if (!target.isAdmin) {
+        setFlash(req, 'error', 'Password can only be set for admin users');
+        return res.redirect('/');
+      }
+      const passwordError = getAdminPasswordError(req.body.password);
+      if (passwordError) {
+        setFlash(req, 'error', passwordError);
+        return res.redirect('/');
+      }
       const ok = User.updatePassword(req.params.id, req.body.password);
       if (!ok) {
         setFlash(req, 'error', 'User not found');

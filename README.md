@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.2.3`
+**Version:** `1.2.4`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -13,7 +13,7 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 | **Admin** | Username + password (web UI) | Create/manage users, view/copy API keys |
 | **Users** | Per-user **API key** (REST API / browser extension) | Only their own bookmarks |
 
-There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`.
+There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`. Regular users do **not** need a password—only admins use the portal login.
 
 ## Screenshots
 
@@ -31,7 +31,13 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
 
-### What’s new in 1.2.3
+### What’s new in 1.2.4
+
+- **Admin-only passwords:** create regular users without a password; the password field (create + set password) appears only for **Admin** accounts
+- **Session timeout UX:** when the admin session expires, the portal clears the page and returns to login (no leftover API keys on screen); lightweight `GET /session` probe
+- **Admin UI:** removed the **API usage (per user)** curl card; `[hidden]` CSS fix so conditional form fields stay out of layout
+
+### 1.2.3
 
 - **Multi-browser deletes:** sync tombstones + sticky soft-deletes (a delete on one browser no longer resurrects from another)
 - **Extension 1.1.3:** toolbar root mapping (Brave “Bookmarks bar” ↔ Firefox “Bookmarks Toolbar”), safer apply/order, optional host access only
@@ -149,7 +155,7 @@ bookmarks-sync/
 - **Multi-user**: admin creates accounts; no public signup
 - **Admin portal** on a **separate port** from the API
 - **First-run setup** in the admin UI (default username `admin`); no password required in env/YAML
-- **Username + password** for admin web login after setup
+- **Username + password** for admin web login after setup (regular users use API keys only—no password)
 - **Per-user API keys** for `/api/bookmarks` (extension / scripts), with **copy** in the admin UI
 - **Confirm dialogs** for destructive admin actions (delete user, clear bookmarks, new API key)
 - **Factory reset** from the admin UI (danger zone → `/setup`)
@@ -207,7 +213,7 @@ No admin password needs to live in `.env` or Docker/TrueNAS YAML.
 ### Create users
 
 1. Log in to the admin portal (admin only in v1).
-2. Create a user (username, password, optional display name) — or use the admin’s own API key for the extension.
+2. Create a user (username, optional display name). No password is required for regular users—only check **Admin** (and set a password) when creating another portal admin. Or use the admin’s own API key for the extension.
 3. **Copy** that user’s **API key** (copy icon next to the key).
 4. Use the key with:
    - the **browser extension** (Options → API key), or  
@@ -388,13 +394,14 @@ Base URL: `http://127.0.0.1:<ADMIN_PORT>/`
 |---|---|
 | `GET /setup` | First-run: set password for `admin` (only if no admin exists) |
 | `POST /setup` | Create admin + API key |
-| `GET /login` | Login form (username + password) |
+| `GET /login` | Login form (username + password); `?expired=1` after session timeout |
 | `POST /login` | Authenticate (session cookie) |
 | `POST /logout` | End session |
+| `GET /session` | Session probe for the admin UI (204 if logged in; used after idle timeout) |
 | `GET /` | User list + create form (admins only) |
-| `POST /users` | Create user |
+| `POST /users` | Create user (password required only when creating an admin) |
 | `POST /users/:id/regenerate-key` | Issue a new API key |
-| `POST /users/:id/password` | Set password |
+| `POST /users/:id/password` | Set password (admin users only) |
 | `POST /users/:id/enable` / `disable` | Activate / deactivate |
 | `POST /users/:id/delete` | Delete user and their bookmarks |
 | `POST /users/:id/clear-bookmarks` | Permanently delete all bookmarks for a user |

@@ -18,6 +18,7 @@ function usersPage({
   duplicateExtras = {},
   logConfig = null,
   timeFormat = '24h',
+  sessionMaxAgeMs = 0,
 }) {
   const rows = users
     .map((u) => {
@@ -103,10 +104,14 @@ function usersPage({
               data-username="${escapeHtml(u.username)}">
               <button type="submit" class="btn btn-small">New API key</button>
             </form>
-            <form method="post" action="/users/${escapeHtml(u.id)}/password" class="password-form">
-              <input type="password" name="password" placeholder="New password" required />
+            ${
+              u.isAdmin
+                ? `<form method="post" action="/users/${escapeHtml(u.id)}/password" class="password-form">
+              <input type="password" name="password" placeholder="New password" required minlength="8" autocomplete="new-password" />
               <button type="submit" class="btn btn-small">Set password</button>
-            </form>
+            </form>`
+                : ''
+            }
             ${
               isSelf
                 ? '<span class="muted small">you</span>'
@@ -130,13 +135,13 @@ function usersPage({
     <header class="page-header">
       <div>
         <h1>Users</h1>
-        <p class="muted">Only admins can create users. Each user gets a password (web login later) and an API key (extension / API).</p>
+        <p class="muted">Only admins can create users. Regular users get an API key (extension / API). Passwords are only for admin portal login.</p>
       </div>
     </header>
 
     <section class="card">
       <h2>Create user</h2>
-      <form method="post" action="/users" class="form-grid">
+      <form method="post" action="/users" class="form-grid" id="form-create-user">
         <label>
           Username
           <input type="text" name="username" required minlength="2" pattern="[A-Za-z0-9._\\-]+" autocomplete="off" />
@@ -145,13 +150,13 @@ function usersPage({
           Display name
           <input type="text" name="displayName" autocomplete="off" />
         </label>
-        <label>
-          Password
-          <input type="password" name="password" required autocomplete="new-password" />
-        </label>
         <label class="checkbox">
-          <input type="checkbox" name="isAdmin" value="1" />
+          <input type="checkbox" name="isAdmin" value="1" id="create-user-is-admin" />
           Admin
+        </label>
+        <label id="create-user-password-label" hidden>
+          Password
+          <input type="password" name="password" id="create-user-password" autocomplete="new-password" minlength="8" />
         </label>
         <div class="form-actions">
           <button type="submit" class="btn btn-primary">Create user</button>
@@ -216,11 +221,6 @@ function usersPage({
       </p>
     </section>
 
-    <section class="card muted small">
-      <p><strong>API usage</strong> (per user):</p>
-      <pre>curl -H "Authorization: Bearer &lt;api-key&gt;" http://localhost:${escapeHtml(process.env.SERVER_PORT || '31059')}/api/bookmarks</pre>
-    </section>
-
     <section class="card card-danger-zone">
       <h2>Danger zone</h2>
       <p class="muted small">
@@ -274,6 +274,23 @@ function usersPage({
     <script>
       (function () {
         var MASK = '••••••••••••••••••••••••';
+
+        // Password field only when creating an admin (portal login).
+        var adminCb = document.getElementById('create-user-is-admin');
+        var pwdLabel = document.getElementById('create-user-password-label');
+        var pwdInput = document.getElementById('create-user-password');
+        function syncCreatePasswordVisibility() {
+          var isAdmin = adminCb && adminCb.checked;
+          if (pwdLabel) pwdLabel.hidden = !isAdmin;
+          if (pwdInput) {
+            pwdInput.required = !!isAdmin;
+            if (!isAdmin) pwdInput.value = '';
+          }
+        }
+        if (adminCb) {
+          adminCb.addEventListener('change', syncCreatePasswordVisibility);
+          syncCreatePasswordVisibility();
+        }
 
         // Format timestamps in the browser locale/timezone (container is usually UTC).
         // Clock style (12h/24h) comes from server TIME_FORMAT env (injected below).
@@ -640,7 +657,7 @@ function usersPage({
       })();
     </script>`;
 
-  return layout({ title: 'Users', user, flash, body });
+  return layout({ title: 'Users', user, flash, body, sessionMaxAgeMs });
 }
 
 module.exports = { usersPage };

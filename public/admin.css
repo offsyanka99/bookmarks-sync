@@ -257,6 +257,12 @@ label {
   font-weight: 600;
 }
 
+/* Author display rules (e.g. label { display: flex }) beat the UA [hidden]
+   stylesheet unless !important — keep truly hidden elements out of layout. */
+[hidden] {
+  display: none !important;
+}
+
 input[type="text"],
 input[type="password"],
 select {
