@@ -26,8 +26,6 @@ Works on **normal release Firefox** only when the file is **Mozilla-signed** (co
 Requires **Firefox 140+** (desktop) / **142+** (Android) for this build.  
 Unsigned rebuilds only work on Developer Edition / Nightly (Option A) or after you re-sign (below).
 
-Store checklist: **[STORE-SUBMIT.md](./STORE-SUBMIT.md)** · prep: `npm run ext:prepare-store`.
-
 ### Install (signed XPI)
 
 1. Download the `.xpi` from the repo (`dist/` on GitHub, or your clone).

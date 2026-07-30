@@ -16,4 +16,7 @@ dist/*
 # web-ext / AMO local artifacts (never commit)
 **/web-ext-artifacts/
 **/.amo-upload-uuid
+# Store submission notes / paste packs — keep local only, never publish
+bookmarks-extension/STORE-SUBMIT.md
+dist/STORE-SUBMIT-*.txt
 

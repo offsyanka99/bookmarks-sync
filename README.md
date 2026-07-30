@@ -37,7 +37,6 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 - **Extension 1.1.3:** toolbar root mapping (Brave “Bookmarks bar” ↔ Firefox “Bookmarks Toolbar”), safer apply/order, optional host access only
 - **Firefox:** Mozilla-signed XPI in `dist/bookmarks-sync-firefox-1.1.3.xpi` (`strict_min_version` 140 / Android 142 for AMO data consent)
 - **Stack:** Node **≥22**, Express **5**, `better-sqlite3` 13; Docker image `node:22-bookworm-slim`; native `crypto.randomUUID()` (no `uuid` package)
-- Store prep: `npm run ext:prepare-store` · guide [`bookmarks-extension/STORE-SUBMIT.md`](./bookmarks-extension/STORE-SUBMIT.md)
 
 ### 1.2.2
 

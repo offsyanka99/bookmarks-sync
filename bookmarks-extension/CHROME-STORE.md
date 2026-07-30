@@ -15,8 +15,6 @@ You upload a **ZIP** to the [Chrome Web Store Developer Dashboard](https://chrom
 
 This document is for **maintainers** updating the live listing. End users should install from the store URL above (see [README.md](./README.md)).
 
-**One-shot prep (Chrome ZIP + Firefox XPI + lint):** see [STORE-SUBMIT.md](./STORE-SUBMIT.md) and `npm run ext:prepare-store`.
-
 ---
 
 ## Submit update 1.1.3 (checklist)
@@ -34,8 +32,6 @@ Rebuild anytime:
 
 ```bash
 # From repo root
-npm run ext:prepare-store   # recommended
-# or
 npm run ext:pack-chrome
 ```
 

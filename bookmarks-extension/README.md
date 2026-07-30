@@ -2,8 +2,6 @@
 
 **Extension package version:** `1.1.3` (Chrome / Firefox source). Server is versioned separately (`package.json`).
 
-**Store submission:** [STORE-SUBMIT.md](./STORE-SUBMIT.md) · `npm run ext:prepare-store`
-
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 
 | Browser | Folder to load | Background |

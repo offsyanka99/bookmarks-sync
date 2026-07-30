@@ -215,7 +215,6 @@ Privacy:
 Docs:
   bookmarks-extension/CHROME-STORE.md
   bookmarks-extension/FIREFOX-INSTALL.md
-  bookmarks-extension/STORE-SUBMIT.md
 `.trimStart();
 
 fs.writeFileSync(summaryPath, summary);
