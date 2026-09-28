@@ -19,4 +19,6 @@ dist/*
 # Store submission notes / paste packs — keep local only, never publish
 bookmarks-extension/STORE-SUBMIT.md
 dist/STORE-SUBMIT-*.txt
+# Local code review notes
+docs/CODE-REVIEW.md
 

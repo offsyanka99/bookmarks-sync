@@ -9,13 +9,17 @@ import {
   DIR_TAG,
   encodeFolder,
   decodeFolder,
+  decodePath,
+  encodePath,
   isDirEntry,
   itemSignature,
   urlsMatch,
+  normalizeUrl,
   parentIdForRoot,
   parentDepth,
   msToIso,
-  isRootLikeTitle,
+  isMenuMirrorTitle,
+  MENU_MIRROR_TITLE,
 } from './folderCodec.js';
 import { getRootIds } from './treeCollect.js';
 import { debugWarn } from './debugLog.js';
@@ -127,6 +131,7 @@ export function toServerPayload(localBookmarks, idMap, opts = {}) {
       tags: isFolder ? [DIR_TAG] : Array.isArray(b.tags) ? b.tags : [],
       notes: '',
       position: Number.isFinite(Number(b.position)) ? Number(b.position) : 0,
+      parentId: b.parentLocalId ? localToServer[b.parentLocalId] || null : null,
       createdAt: msToIso(b.dateAdded),
       deletedAt: null,
       _localId: b.localId,
@@ -151,8 +156,33 @@ export function toServerPayload(localBookmarks, idMap, opts = {}) {
   // These propagate deletes to the server without relying on replace heuristics alone.
   if (emitTombstones) {
     const liveIds = new Set(payload.map((p) => p.id));
+    const liveByFolderUrl = new Map();
+    for (const entry of payload) {
+      if (!entry.url || entry._kind === 'folder') continue;
+      const key = `${entry.folder || ''}\0${normalizeUrl(entry.url)}`;
+      if (!liveByFolderUrl.has(key)) liveByFolderUrl.set(key, entry);
+    }
     for (const serverId of Object.keys(snapshot)) {
       if (!serverId || liveIds.has(serverId)) continue;
+      const prev = snapshot[serverId];
+      if (prev && prev.url) {
+        const key = `${prev.folder || ''}\0${normalizeUrl(prev.url)}`;
+        const live = liveByFolderUrl.get(key);
+        // A new local node with the deleted bookmark's folder+url is a re-add.
+        // Keep the old server id and do not emit a tombstone.
+        if (live && !snapshot[live.id]) {
+          const freshId = live.id;
+          const localId = live._localId;
+          live.id = serverId;
+          delete serverToLocal[freshId];
+          if (localId) {
+            localToServer[localId] = serverId;
+            serverToLocal[serverId] = localId;
+          }
+          liveIds.add(serverId);
+          continue;
+        }
+      }
       payload.push({
         id: serverId,
         title: '',
@@ -188,6 +218,9 @@ export function snapshotFromServerBookmarks(serverBookmarks) {
     snap[b.id] = {
       sig: itemSignature(b),
       updatedAt: b.updatedAt || new Date().toISOString(),
+      folder: b.folder || '',
+      url: isDirEntry(b) ? '' : b.url || '',
+      parentId: b.parentId || null,
     };
   }
   return snap;
@@ -251,6 +284,36 @@ export async function removeLocalByServerIds(serverIds, idMap, yieldEvery = DEFA
 }
 
 /**
+ * Remove local nodes by browser id (duplicate rows that would share a server id).
+ * @param {string[]} localIds
+ * @returns {Promise<number>}
+ */
+export async function removeLocalIds(localIds) {
+  let removed = 0;
+  for (const localId of [...new Set((localIds || []).filter(Boolean).map(String))]) {
+    try {
+      const nodes = await chrome.bookmarks.get(localId);
+      const node = nodes?.[0];
+      if (node && !node.url) await chrome.bookmarks.removeTree(localId);
+      else await chrome.bookmarks.remove(localId);
+      removed += 1;
+    } catch (err) {
+      debugWarn('treeApply', 'duplicate remove failed', { localId, err: String(err) });
+      try {
+        await chrome.bookmarks.removeTree(localId);
+        removed += 1;
+      } catch (err2) {
+        debugWarn('treeApply', 'duplicate removeTree failed', {
+          localId,
+          err: String(err2),
+        });
+      }
+    }
+  }
+  return removed;
+}
+
+/**
  * Apply server list (folders + urls) preserving mixed order.
  *
  * @param {object[]} serverBookmarks
@@ -285,14 +348,36 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     (b) => b && !b.deletedAt && (b.url || isDirEntry(b))
   );
 
+  const byServerId = new Map(active.filter((b) => b?.id).map((b) => [String(b.id), b]));
+  const depthMemo = new Map();
+  function chainDepth(item) {
+    if (!item) return 0;
+    const key = item.id ? String(item.id) : '';
+    if (key && depthMemo.has(key)) return depthMemo.get(key);
+    let depth = 0;
+    let current = item;
+    const seen = new Set();
+    while (current?.parentId && byServerId.has(String(current.parentId)) && !seen.has(current.id)) {
+      seen.add(current.id);
+      depth += 1;
+      current = byServerId.get(String(current.parentId));
+    }
+    if (!item.parentId) depth = parentDepth(item.folder);
+    else if (!byServerId.has(String(item.parentId))) {
+      depth = parentDepth(item.folder);
+    }
+    if (key) depthMemo.set(key, depth);
+    return depth;
+  }
+
   // Parents before children; then sibling position
   active.sort((a, b) => {
+    const depthA = chainDepth(a);
+    const depthB = chainDepth(b);
+    if (depthA !== depthB) return depthA - depthB;
     const da = decodeFolder(a.folder);
     const db = decodeFolder(b.folder);
     if (da.root !== db.root) return da.root.localeCompare(db.root);
-    const depthA = parentDepth(a.folder);
-    const depthB = parentDepth(b.folder);
-    if (depthA !== depthB) return depthA - depthB;
     if (da.path !== db.path) return da.path.localeCompare(db.path);
     const pa = Number(a.position) || 0;
     const pb = Number(b.position) || 0;
@@ -318,10 +403,33 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
   let skipped = 0;
   let ops = 0;
 
+  let menuMirrorId = null;
+
+  /** Browser root, or the Chromium "Bookmarks Menu" folder under Other Bookmarks. */
+  async function rootLocalId(kind) {
+    if (kind === 'menu') {
+      if (roots.menuId) return roots.menuId;
+      if (menuMirrorId) return menuMirrorId;
+      const kids = await chrome.bookmarks.getChildren(roots.otherId);
+      let folder = kids.find((child) => !child.url && isMenuMirrorTitle(child.title));
+      if (!folder) {
+        folder = await chrome.bookmarks.create({
+          parentId: roots.otherId,
+          title: MENU_MIRROR_TITLE,
+        });
+        created += 1;
+        ops += 1;
+        await maybeYield(ops, yieldEvery);
+      }
+      menuMirrorId = String(folder.id);
+      return menuMirrorId;
+    }
+    return parentIdForRoot(kind, roots, defaultRootId);
+  }
+
   /**
    * Ensure folder path segments exist under a logical root.
-   * Never create segments whose title is a browser root label
-   * ("Bookmarks bar" / "Bookmarks Toolbar") — map them to the real root instead.
+   * Segment text is unescaped, so a title containing "/" stays one folder.
    * @param {string} root
    * @param {string} relativePath
    * @returns {Promise<string>} local parent id
@@ -330,29 +438,23 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     const parentKey = encodeFolder(root, relativePath);
     if (pathToLocalId.has(parentKey)) return pathToLocalId.get(parentKey);
 
-    let cur = parentIdForRoot(root, roots, defaultRootId);
-    let built = '';
-    const parts = String(relativePath || '')
-      .split('/')
-      .filter(Boolean);
+    let cur = await rootLocalId(root);
+    const builtParts = [];
+    const parts = decodePath(relativePath);
     for (const part of parts) {
-      // Root-like segment → stay on the managed root (do not nest "Bookmarks bar")
-      if (isRootLikeTitle(part)) {
-        pathToLocalId.set(encodeFolder(root, built ? `${built}/${part}` : part), cur);
-        continue;
-      }
-      built = built ? `${built}/${part}` : part;
-      const k = encodeFolder(root, built);
+      const segment = part || '(untitled)';
+      builtParts.push(segment);
+      const k = encodeFolder(root, encodePath(builtParts));
       if (pathToLocalId.has(k)) {
         cur = pathToLocalId.get(k);
         continue;
       }
       const kids = await chrome.bookmarks.getChildren(cur);
-      let folder = kids.find((c) => !c.url && c.title === part);
+      let folder = kids.find((c) => !c.url && c.title === segment);
       if (!folder) {
         folder = await chrome.bookmarks.create({
           parentId: cur,
-          title: part,
+          title: segment,
           index: 0,
         });
         created += 1;
@@ -366,31 +468,23 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     return cur;
   }
 
+  async function resolveParent(sb) {
+    if (sb?.parentId && serverToLocal[sb.parentId]) return serverToLocal[sb.parentId];
+    const { root, path } = decodeFolder(sb?.folder || '');
+    return ensurePath(root, path);
+  }
+
   // First pass: ensure all directory nodes exist and are mapped
   for (const sb of active) {
     if (!isDirEntry(sb)) continue;
 
     const { root, path: parentPath } = decodeFolder(sb.folder);
-
-    // Server row that is itself a browser-root label → map path to real root, do not nest.
-    // Do NOT put the real toolbar/other id into localToServer (removeLocalMissing would
-    // try to delete the browser root).
-    if (isRootLikeTitle(sb.title)) {
-      const rootId = parentIdForRoot(root, roots, defaultRootId);
-      const selfKey = encodeFolder(
-        root,
-        parentPath ? `${parentPath}/${sb.title}` : sb.title || ''
-      );
-      pathToLocalId.set(selfKey, rootId);
-      skipped += 1;
-      continue;
-    }
-
-    const parentId = await ensurePath(root, parentPath);
+    const parentId = await resolveParent(sb);
 
     const desiredIndex = Math.max(0, Number(sb.position) || 0);
-    const childPath = parentPath ? `${parentPath}/${sb.title}` : sb.title;
-    const selfKey = encodeFolder(root, childPath);
+    const childParts = decodePath(parentPath);
+    childParts.push(sb.title || '(untitled)');
+    const selfKey = encodeFolder(root, encodePath(childParts));
 
     let node = null;
     const localId = serverToLocal[sb.id];
@@ -446,8 +540,7 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
       continue;
     }
 
-    const { root, path } = decodeFolder(sb.folder);
-    const parentId = await ensurePath(root, path);
+    const parentId = await resolveParent(sb);
 
     const desiredIndex = Math.max(0, Number(sb.position) || 0);
     let node = null;

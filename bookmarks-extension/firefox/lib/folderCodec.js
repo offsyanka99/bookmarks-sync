@@ -43,6 +43,47 @@ export const CHROME_MOBILE_IDS = new Set(['3']);
 
 export const ROOT_KINDS = new Set(['toolbar', 'other', 'menu', 'mobile']);
 
+/** Chromium has no Bookmarks Menu root. This folder under Other Bookmarks stands in for it. */
+export const MENU_MIRROR_TITLE = 'Bookmarks Menu';
+
+export function isMenuMirrorTitle(title) {
+  return String(title || '').trim().toLowerCase() === 'bookmarks menu';
+}
+
+/** Keep "/" inside a folder title from being read as a path separator. */
+export function escapePathSegment(segment) {
+  return String(segment ?? '').replace(/\\/g, '\\\\').replace(/\//g, '\\/');
+}
+
+export function encodePath(parts) {
+  return (parts || []).map((part) => escapePathSegment(part)).join('/');
+}
+
+export function decodePath(path) {
+  const parts = [];
+  let current = '';
+  const text = String(path || '');
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '\\' && i + 1 < text.length) {
+      const next = text[i + 1];
+      if (next === '/' || next === '\\') {
+        current += next;
+        i += 1;
+        continue;
+      }
+    }
+    if (ch === '/') {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
 /**
  * True when this id is a browser-managed root folder (safe to use anywhere in the tree).
  * @param {string|number|null|undefined} id
@@ -123,6 +164,7 @@ export function itemSignature(b) {
   const tags = Array.isArray(b.tags) ? [...b.tags].sort().join(',') : '';
   return [
     b.folder || '',
+    b.parentId || '',
     Number(b.position) || 0,
     b.title || '',
     b.url || '',
@@ -222,7 +264,7 @@ export function parentIdForRoot(kind, roots, fallbackId) {
 export function parentDepth(folder) {
   const { path } = decodeFolder(folder);
   if (!path) return 0;
-  return path.split('/').filter(Boolean).length;
+  return decodePath(path).length;
 }
 
 export function msToIso(ms) {

@@ -16,6 +16,8 @@ import {
   saveMeta,
   getSyncSnapshot,
   saveSyncSnapshot,
+  clearSyncState,
+  saveSyncRecords,
 } from './storage.js';
 import { formatDateTime, normalizeTimeFormat, DEFAULT_TIME_FORMAT } from './formatDateTime.js';
 import {
@@ -23,7 +25,9 @@ import {
   syncBookmarks,
   getHealth,
   getInfo,
+  getMe,
   listBookmarks,
+  listAllBookmarks,
   ApiError,
 } from './api.js';
 
@@ -43,6 +47,7 @@ import {
   toServerPayload,
   applyServerBookmarks,
   removeLocalByServerIds,
+  removeLocalIds,
   snapshotFromServerBookmarks,
 } from './bookmarks.js';
 import { debugLog } from './debugLog.js';
@@ -115,6 +120,7 @@ export async function testConnection() {
 
   let auth = null;
   if (settings.apiKey) {
+    await reconcileAccount(settings);
     const list = await listBookmarks(settings);
     auth = {
       ok: true,
@@ -186,6 +192,51 @@ function assertLocalDestructiveOk(settings, { localCount, wouldRemove, side, las
   );
 }
 
+/**
+ * Clear the local sync cursor when the API origin or the account id changes.
+ * Regenerating a key for the same user keeps the state.
+ */
+export async function reconcileAccount(settings) {
+  const me = await getMe(settings);
+  const meta = await getMeta();
+  const server = settings.apiBaseUrl;
+  const userChanged = Boolean(meta.accountUserId) && meta.accountUserId !== me.id;
+  const serverChanged = Boolean(meta.accountServer) && meta.accountServer !== server;
+  if (userChanged || serverChanged) {
+    await clearSyncState();
+  }
+  await saveMeta({ accountUserId: me.id, accountServer: server });
+  return me;
+}
+
+function jsonBytes(value) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  } catch {
+    return JSON.stringify(value).length;
+  }
+}
+
+/** Split a payload so each request stays under the server body limit. */
+function chunkItems(items, maxBytes) {
+  const budget = Math.max(64 * 1024, Math.floor(Number(maxBytes) * 0.75) || 1048576);
+  const chunks = [];
+  let current = [];
+  let size = 2;
+  for (const item of items) {
+    const bytes = jsonBytes(item) + 1;
+    if (current.length > 0 && size + bytes > budget) {
+      chunks.push(current);
+      current = [];
+      size = 2;
+    }
+    current.push(item);
+    size += bytes;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
 export async function runSync(opts = {}) {
   const settings = await getSettings();
   if (!settings.apiBaseUrl || !settings.apiKey) {
@@ -200,6 +251,7 @@ export async function runSync(opts = {}) {
   const strategy = opts.strategy || settings.strategy || 'merge';
   const confirmDestructive = Boolean(opts.confirmDestructive);
 
+  await reconcileAccount(settings);
   await saveMeta({ lastSyncStatus: 'running', lastError: null });
   cancelPendingChangeBasedSync();
   // Pre-apply suppress; extended after heavy apply below
@@ -219,17 +271,20 @@ export async function runSync(opts = {}) {
     result.strategy = strategy;
     result.reason = opts.reason || 'manual';
 
-    // Persist snapshot so the next merge only bumps timestamps for real local edits
-    if (result._snapshot) {
-      await saveSyncSnapshot(result._snapshot);
-      delete result._snapshot;
-    }
-
-    await saveMeta({
-      lastSyncAt: result.lastSyncAt,
-      lastResult: result,
-      lastError: null,
-      lastSyncStatus: 'ok',
+    const snapshot = result._snapshot;
+    const idMapToSave = result._idMap;
+    delete result._snapshot;
+    delete result._idMap;
+    await saveSyncRecords({
+      idMap: idMapToSave,
+      syncSnapshot: snapshot,
+      meta: {
+        lastSyncAt: result.lastSyncAt,
+        syncCursor: result.syncCursor ?? null,
+        lastResult: result,
+        lastError: null,
+        lastSyncStatus: 'ok',
+      },
     });
 
     // Longer suppress after heavy local rewrites (download / large merge apply)
@@ -282,7 +337,6 @@ async function runMergeStrategy(settings, opts = {}) {
   const {
     payload,
     idMap: mapAfterPushPrep,
-    knownIds,
   } = toServerPayload(local, idMap, {
     snapshot,
     bumpAll: false,
@@ -291,25 +345,44 @@ async function runMergeStrategy(settings, opts = {}) {
 
   const livePayload = payload.filter((p) => !p._tombstone && !p.deletedAt);
   const tombstonePayload = payload.filter((p) => p._tombstone || p.deletedAt);
+  const changedPayload = payload.filter((p) => p._changed || p._tombstone || p.deletedAt);
 
   const canReplaceSafely =
-    Boolean(meta.lastSyncAt) && mapSize > 0 && local.length > 0;
-  const replace =
-    opts.replace === true
-      ? true
-      : opts.replace === false
-        ? false
-        : canReplaceSafely;
+    Boolean(meta.syncCursor || meta.lastSyncAt) && mapSize > 0 && local.length > 0;
+  let maxBytes = 1048576;
+  try {
+    const info = await getInfo(settings);
+    if (Number(info?.maxSyncSizeBytes) > 0) maxBytes = Number(info.maxSyncSizeBytes);
+  } catch (err) {
+    debugLog('sync', 'info size limit unavailable', { err: String(err?.message || err) });
+  }
+  const chunks = chunkItems(changedPayload, maxBytes);
+  if (chunks.length === 0) chunks.push([]);
+  const cursor = Number(meta.syncCursor) > 0 ? Math.floor(Number(meta.syncCursor)) : null;
+  let serverResult = null;
+  for (const chunk of chunks) {
+    serverResult = await syncBookmarks(settings, chunk, {
+      replace: false,
+      force: Boolean(opts.force),
+      lastSyncAt: meta.lastSyncAt || null,
+      syncCursor: cursor,
+      changesOnly: true,
+      pageSize: 400,
+      confirmDestructive: Boolean(opts.confirmDestructive),
+    });
+  }
 
-  const serverResult = await syncBookmarks(settings, payload, {
-    replace,
-    force: Boolean(opts.force),
-    lastSyncAt: meta.lastSyncAt || null,
-    confirmDestructive: Boolean(opts.confirmDestructive),
-    knownIds: knownIds || Object.keys(snapshot),
-  });
+  const overlay = (serverResult.conflicts || [])
+    .filter((c) => c?.reason === 'server_newer' && c.server && !c.server.deletedAt)
+    .map((c) => c.server);
+  const seenIds = new Set((serverResult.bookmarks || []).map((b) => b.id));
+  for (const row of overlay) {
+    if (row?.id && !seenIds.has(row.id)) serverResult.bookmarks.push(row);
+  }
 
   let nextMap = mapAfterPushPrep;
+  const hadCursor = cursor != null;
+  const fullSet = !hadCursor || Boolean(serverResult.fullResync);
   const serverCount = (serverResult.bookmarks || []).length;
   const serverIds = new Set((serverResult.bookmarks || []).map((b) => b.id));
   const mergeClientToServer = new Map(
@@ -329,37 +402,50 @@ async function runMergeStrategy(settings, opts = {}) {
   }
   // Live rows should appear on the active server list, or be acknowledged as server-deleted.
   // Account for folder+url merges remapping client UUIDs → existing server ids.
-  const livePushApplied = livePayload.every((p) => {
+  const sentLive = changedPayload.filter((p) => !p._tombstone && !p.deletedAt);
+  const livePushApplied = sentLive.every((p) => {
     const id = String(p.id);
     const resolved = mergeClientToServer.get(id) || id;
     return serverIds.has(resolved) || deletedOnServer.has(resolved) || deletedOnServer.has(id);
   });
   const protectServerIds = protectServerIdsFromConflicts(serverResult.conflicts);
 
-  // Apply remote deletes even when some unrelated conflicts exist.
-  // Only block full membership reconcile when live pushes failed to land.
-  const removeLocalMissing =
-    settings.removeLocalMissing !== false &&
-    canReplaceSafely &&
-    livePushApplied &&
-    (serverCount > 0 ||
-      tombstonePayload.length > 0 ||
-      deletedOnServer.size > 0 ||
-      (serverResult.tombstones || []).length > 0);
+  // A delta response is not a full membership list. Reconcile only on a full
+  // set (first sync) or when the server asks for a resync after tombstone purge.
+  const removeLocalMissing = serverResult.fullResync
+    ? settings.removeLocalMissing !== false
+    : fullSet &&
+      settings.removeLocalMissing !== false &&
+      canReplaceSafely &&
+      livePushApplied &&
+      (serverCount > 0 ||
+        tombstonePayload.length > 0 ||
+        deletedOnServer.size > 0 ||
+        (serverResult.tombstones || []).length > 0);
 
-  // Server may have merged client UUIDs into existing folder+url rows
-  nextMap = applyServerMerges(nextMap, serverResult.merges);
+  const mergedIds = applyServerMerges(nextMap, serverResult.merges);
+  nextMap = {
+    localToServer: mergedIds.localToServer,
+    serverToLocal: mergedIds.serverToLocal,
+  };
+  if (mergedIds.duplicateLocalIds.length > 0) {
+    await removeLocalIds(mergedIds.duplicateLocalIds);
+  }
 
   // Explicit tombstones from the server (soft-deletes since lastSyncAt / this run)
   const remoteTombstoneIds = (serverResult.tombstones || [])
     .map((t) => t?.id)
     .filter(Boolean)
     .filter((id) => !protectServerIds.has(String(id)));
-  // Also remove anything we sent as a tombstone that is no longer active on server
+  // A changes-only response omits untouched rows, so absence is not a delete.
+  // Drop a sent tombstone locally only when the server kept the delete.
+  const echoedTombstones = new Set(
+    (serverResult.tombstones || []).map((t) => String(t?.id || '')).filter(Boolean)
+  );
   for (const t of tombstonePayload) {
-    if (t?.id && !serverIds.has(t.id) && !protectServerIds.has(String(t.id))) {
-      remoteTombstoneIds.push(t.id);
-    }
+    if (!t?.id || protectServerIds.has(String(t.id))) continue;
+    if (echoedTombstones.has(String(t.id))) remoteTombstoneIds.push(t.id);
+    else if (fullSet && !serverIds.has(t.id)) remoteTombstoneIds.push(t.id);
   }
   // server_deleted conflicts: server kept the soft-delete — drop local copy
   for (const c of serverResult.conflicts || []) {
@@ -387,55 +473,80 @@ async function runMergeStrategy(settings, opts = {}) {
   nextMap = apply.idMap;
   apply.removed = (apply.removed || 0) + tombstoneRemoved;
   apply.ops = (apply.ops || 0) + tombstoneOps;
-  await saveIdMap(nextMap);
 
   const result = buildResult({
     local,
     serverResult,
     apply,
-    lastSyncAt: serverResult.lastSyncAt || new Date().toISOString(),
+    lastSyncAt: serverResult.serverTime || serverResult.lastSyncAt || new Date().toISOString(),
   });
-  result._snapshot = snapshotFromServerBookmarks(serverResult.bookmarks || []);
+  result.syncCursor = serverResult.syncCursor ?? null;
+  result._idMap = nextMap;
+  result._snapshot = fullSet
+    ? snapshotFromServerBookmarks(serverResult.bookmarks || [])
+    : mergeSnapshot(snapshot, serverResult.bookmarks, serverResult.tombstones);
   result.localChanged = livePayload.filter((p) => p._changed).length;
-  result.tombstonesSent = tombstonePayload.length;
+  result.tombstonesSent = tombstonePayload.filter((t) => t?.id).length;
   result.server.merged = serverResult.merged || 0;
   result.server.tombstones = (serverResult.tombstones || []).length;
   return result;
 }
 
+function mergeSnapshot(previous, serverBookmarks, tombstones) {
+  const next = { ...(previous || {}) };
+  for (const tomb of tombstones || []) {
+    const id = typeof tomb === 'string' ? tomb : tomb?.id;
+    if (id) delete next[id];
+  }
+  Object.assign(next, snapshotFromServerBookmarks(serverBookmarks));
+  return next;
+}
+
 /**
  * Remap local→server ids when the server merged a client UUID into an existing row.
+ * A second local node that would share the kept server id is dropped from the map
+ * and returned so the caller can delete that duplicate.
  * @param {{ localToServer: object, serverToLocal: object }} idMap
  * @param {{ clientId: string, serverId: string }[]|undefined} merges
  */
-function applyServerMerges(idMap, merges) {
-  if (!Array.isArray(merges) || merges.length === 0) return idMap;
-  const localToServer = { ...idMap.localToServer };
-  const serverToLocal = { ...idMap.serverToLocal };
+export function applyServerMerges(idMap, merges) {
+  const localToServer = { ...(idMap?.localToServer || {}) };
+  const serverToLocal = { ...(idMap?.serverToLocal || {}) };
+  const duplicateLocalIds = [];
+  if (!Array.isArray(merges) || merges.length === 0) {
+    return { localToServer, serverToLocal, duplicateLocalIds };
+  }
 
   for (const m of merges) {
     if (!m?.clientId || !m?.serverId || m.clientId === m.serverId) continue;
-    const localId = serverToLocal[m.clientId];
-    if (localId) {
-      localToServer[localId] = m.serverId;
-      serverToLocal[m.serverId] = localId;
-      delete serverToLocal[m.clientId];
-    }
-    // Drop reverse map for the discarded client id if present
+    const locals = new Set();
+    if (serverToLocal[m.clientId]) locals.add(String(serverToLocal[m.clientId]));
     for (const [lid, sid] of Object.entries(localToServer)) {
-      if (sid === m.clientId) {
-        localToServer[lid] = m.serverId;
-        serverToLocal[m.serverId] = lid;
-      }
+      if (sid === m.clientId) locals.add(lid);
     }
+    const existingLocal = serverToLocal[m.serverId] ? String(serverToLocal[m.serverId]) : null;
+    if (existingLocal && [...locals].some((lid) => lid !== existingLocal)) {
+      for (const lid of locals) {
+        if (lid === existingLocal) continue;
+        duplicateLocalIds.push(lid);
+        delete localToServer[lid];
+      }
+      delete serverToLocal[m.clientId];
+      continue;
+    }
+    for (const lid of locals) {
+      localToServer[lid] = m.serverId;
+      serverToLocal[m.serverId] = lid;
+    }
+    delete serverToLocal[m.clientId];
   }
 
-  return { localToServer, serverToLocal };
+  return { localToServer, serverToLocal, duplicateLocalIds };
 }
 
 async function runDownloadStrategy(settings, opts = {}) {
   const localBefore = await collectLocalBookmarks();
-  const list = await listBookmarks(settings, { includeDeleted: false });
+  const list = await listAllBookmarks(settings);
   const serverBookmarks = list?.bookmarks || [];
   const meta = await getMeta();
 
@@ -474,9 +585,7 @@ async function runDownloadStrategy(settings, opts = {}) {
       matchByUrl: false, // clean tree; no local siblings to match
     }
   );
-  await saveIdMap(apply.idMap);
-
-  const lastSyncAt = new Date().toISOString();
+  const lastSyncAt = list?.serverTime || new Date().toISOString();
   return {
     at: lastSyncAt,
     localCount: localBefore.length,
@@ -497,7 +606,9 @@ async function runDownloadStrategy(settings, opts = {}) {
       ops: (apply.ops || 0) + wiped,
     },
     lastSyncAt,
+    syncCursor: list?.syncCursor ?? null,
     conflicts: [],
+    _idMap: apply.idMap,
     _snapshot: snapshotFromServerBookmarks(serverBookmarks),
   };
 }
@@ -560,12 +671,20 @@ async function runUploadStrategy(settings, opts = {}) {
     replace: true,
     force: true,
     lastSyncAt: null,
+    pageSize: 400,
     // force skips server failsafe; confirmDestructive used for client-side check above
     confirmDestructive: Boolean(opts.confirmDestructive),
     knownIds: knownIds || null,
   });
 
-  let nextMap = applyServerMerges(mapAfterPushPrep, serverResult.merges);
+  const mergedIds = applyServerMerges(mapAfterPushPrep, serverResult.merges);
+  let nextMap = {
+    localToServer: mergedIds.localToServer,
+    serverToLocal: mergedIds.serverToLocal,
+  };
+  if (mergedIds.duplicateLocalIds.length > 0) {
+    await removeLocalIds(mergedIds.duplicateLocalIds);
+  }
   const apply = await applyServerBookmarks(serverResult.bookmarks || [], nextMap, {
     syncRoot: settings.syncRoot,
     removeLocalMissing: opts.removeLocalMissing === true,
@@ -573,14 +692,15 @@ async function runUploadStrategy(settings, opts = {}) {
   });
 
   nextMap = apply.idMap;
-  await saveIdMap(nextMap);
 
   const result = buildResult({
     local,
     serverResult,
     apply,
-    lastSyncAt: serverResult.lastSyncAt || new Date().toISOString(),
+    lastSyncAt: serverResult.serverTime || serverResult.lastSyncAt || new Date().toISOString(),
   });
+  result.syncCursor = serverResult.syncCursor ?? null;
+  result._idMap = nextMap;
   result._snapshot = snapshotFromServerBookmarks(serverResult.bookmarks || []);
   return result;
 }

@@ -20,6 +20,24 @@ const apiKeyFailLimiter = createRateLimiter({
  * Sets req.user on success. Invalid/missing keys are rate-limited per IP.
  */
 function requireApiKey(req, res, next) {
+  const headerKey = req.get('x-api-key');
+  const authHeader = req.get('authorization') || '';
+  const bearer = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : null;
+
+  const provided = headerKey || bearer;
+  if (provided) {
+    const user = User.findByApiKey(provided);
+    if (user) {
+      apiKeyFailLimiter.reset(req);
+      req.user = user;
+      return next();
+    }
+  }
+
+  // Invalid and missing keys share the failure budget. A valid key is accepted
+  // even when this IP is already over the limit.
   const blocked = apiKeyFailLimiter.checkBlocked(req);
   if (blocked.blocked) {
     res.set('Retry-After', String(blocked.retryAfter));
@@ -28,28 +46,12 @@ function requireApiKey(req, res, next) {
     });
   }
 
-  const headerKey = req.get('x-api-key');
-  const authHeader = req.get('authorization') || '';
-  const bearer = authHeader.toLowerCase().startsWith('bearer ')
-    ? authHeader.slice(7).trim()
-    : null;
-
-  const provided = headerKey || bearer;
+  apiKeyFailLimiter.recordFailure(req);
   if (!provided) {
-    apiKeyFailLimiter.recordFailure(req);
     return res.status(401).json({ error: 'Unauthorized: missing API key' });
   }
-
-  const user = User.findByApiKey(provided);
-  if (!user) {
-    apiKeyFailLimiter.recordFailure(req);
-    logger.warn('Invalid API key attempt', { ip: req.ip });
-    return res.status(401).json({ error: 'Unauthorized: invalid API key' });
-  }
-
-  apiKeyFailLimiter.reset(req);
-  req.user = user;
-  return next();
+  logger.warn('Invalid API key attempt', { ip: req.ip });
+  return res.status(401).json({ error: 'Unauthorized: invalid API key' });
 }
 
 /**

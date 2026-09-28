@@ -180,9 +180,41 @@ export async function getInfo(settings, options = {}) {
   return apiFetch(settings, '/info', options);
 }
 
-export async function listBookmarks(settings, { includeDeleted = false } = {}) {
-  const q = includeDeleted ? '?includeDeleted=true' : '';
-  return apiFetch(settings, `/api/bookmarks${q}`);
+export async function getMe(settings) {
+  return apiFetch(settings, '/api/me');
+}
+
+export async function listBookmarks(settings, { includeDeleted = false, pageSize = null, pageToken = null } = {}) {
+  const params = new URLSearchParams();
+  if (includeDeleted) params.set('includeDeleted', 'true');
+  if (pageSize) params.set('pageSize', String(pageSize));
+  if (pageToken) params.set('pageToken', pageToken);
+  const q = params.toString();
+  return apiFetch(settings, `/api/bookmarks${q ? `?${q}` : ''}`);
+}
+
+/** Follow nextBookmarkToken until the active list is complete. */
+export async function listAllBookmarks(settings, { pageSize = 400 } = {}) {
+  const first = await listBookmarks(settings, { pageSize });
+  const bookmarks = [...(first?.bookmarks || [])];
+  let token = first?.nextBookmarkToken || null;
+  let syncCursor = first?.syncCursor ?? null;
+  let serverTime = first?.serverTime || null;
+  while (token) {
+    const page = await listBookmarks(settings, { pageSize, pageToken: token });
+    bookmarks.push(...(page?.bookmarks || []));
+    token = page?.nextBookmarkToken || null;
+    if (page?.syncCursor != null) syncCursor = page.syncCursor;
+    if (page?.serverTime) serverTime = page.serverTime;
+  }
+  return {
+    ...first,
+    bookmarks,
+    count: bookmarks.length,
+    syncCursor,
+    serverTime,
+    nextBookmarkToken: null,
+  };
 }
 
 /**
@@ -192,6 +224,9 @@ export async function listBookmarks(settings, { includeDeleted = false } = {}) {
  *   replace?: boolean,
  *   force?: boolean,
  *   lastSyncAt?: string|null,
+ *   syncCursor?: number|null,
+ *   changesOnly?: boolean,
+ *   pageSize?: number|null,
  *   confirmDestructive?: boolean,
  *   knownIds?: string[]|null,
  * }} [opts]
@@ -203,14 +238,43 @@ export async function syncBookmarks(settings, bookmarks, opts = {}) {
     force: Boolean(opts.force),
     lastSyncAt: opts.lastSyncAt || null,
     confirmDestructive: Boolean(opts.confirmDestructive),
+    changesOnly: Boolean(opts.changesOnly),
   };
+  if (opts.syncCursor != null && Number.isFinite(Number(opts.syncCursor))) {
+    body.syncCursor = Math.floor(Number(opts.syncCursor));
+  }
+  if (opts.pageSize) body.pageSize = opts.pageSize;
   if (Array.isArray(opts.knownIds) && opts.knownIds.length > 0) {
     body.knownIds = opts.knownIds;
   }
-  return apiFetch(settings, '/api/bookmarks/sync', {
+  const first = await apiFetch(settings, '/api/bookmarks/sync', {
     method: 'POST',
     json: body,
   });
+  return collectSyncPages(settings, first, opts.pageSize || body.pageSize || 400);
+}
+
+async function collectSyncPages(settings, first, pageSize) {
+  const bookmarks = [...(first?.bookmarks || [])];
+  const tombstones = [...(first?.tombstones || [])];
+  let bookmarkToken = first?.nextBookmarkToken || null;
+  let tombstoneToken = first?.nextTombstoneToken || null;
+  const sinceSeq = first?.sinceSeq;
+  const fullResync = Boolean(first?.fullResync);
+  while (bookmarkToken || tombstoneToken) {
+    const params = new URLSearchParams();
+    params.set('pageSize', String(pageSize));
+    if (fullResync) params.set('fullResync', 'true');
+    if (sinceSeq != null) params.set('sinceSeq', String(sinceSeq));
+    if (bookmarkToken) params.set('bookmarkToken', bookmarkToken);
+    if (tombstoneToken) params.set('tombstoneToken', tombstoneToken);
+    const page = await apiFetch(settings, `/api/bookmarks/changes?${params.toString()}`);
+    if (bookmarkToken) bookmarks.push(...(page?.bookmarks || []));
+    if (tombstoneToken) tombstones.push(...(page?.tombstones || []));
+    bookmarkToken = bookmarkToken ? page?.nextBookmarkToken || null : null;
+    tombstoneToken = tombstoneToken ? page?.nextTombstoneToken || null : null;
+  }
+  return { ...first, bookmarks, tombstones, nextBookmarkToken: null, nextTombstoneToken: null };
 }
 
 /**

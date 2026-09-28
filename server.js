@@ -9,7 +9,7 @@ const morgan = require('morgan');
 const path = require('path');
 
 const { getDb, closeDb } = require('./src/utils/db');
-const { bootstrapAdmin } = require('./src/utils/bootstrap');
+const { bootstrapAdmin, needsSetup } = require('./src/utils/bootstrap');
 const {
   logger,
   morganStream,
@@ -26,6 +26,9 @@ const { resolveTimeFormat } = require('./src/utils/timeFormat');
 const bookmarksRouter = require('./src/routes/bookmarks');
 const adminRouter = require('./src/routes/admin');
 const Bookmark = require('./src/models/Bookmark');
+const { requireApiKey } = require('./src/middleware/auth');
+const { resolveMaxSyncBytes } = require('./src/utils/syncLimits');
+const { ensureSetupToken } = require('./src/utils/setupToken');
 
 const API_PORT = Number(process.env.SERVER_PORT) || 31059;
 const ADMIN_PORT = Number(process.env.ADMIN_PORT) || 31060;
@@ -109,6 +112,20 @@ function createApiCors() {
   });
 }
 
+let warnedUntrustedForwarded = false;
+
+function warnIfUntrustedForwarded(req, _res, next) {
+  if (warnedUntrustedForwarded || !req.headers['x-forwarded-for']) return next();
+  const trust = req.app.get('trust proxy');
+  if (!trust) {
+    warnedUntrustedForwarded = true;
+    logger.warn(
+      'Request includes X-Forwarded-For while TRUST_PROXY is off. Every client shares the proxy IP for rate limits. Set TRUST_PROXY when this process sits behind a reverse proxy.'
+    );
+  }
+  return next();
+}
+
 function applyTrustProxy(app) {
   const raw = (process.env.TRUST_PROXY || '').trim().toLowerCase();
   if (!raw || raw === 'false' || raw === '0') {
@@ -152,9 +169,11 @@ if (apiCors) {
   apiApp.use(apiCors);
 }
 apiApp.use(morgan(morganFormat, { stream: morganStream }));
+apiApp.use(warnIfUntrustedForwarded);
 // Brand icons / favicon (same public assets as admin UI)
 apiApp.use(express.static(publicDir, { index: false }));
-apiApp.use(express.json({ limit: process.env.MAX_SYNC_SIZE_BYTES || '1mb' }));
+const maxSyncBytes = resolveMaxSyncBytes();
+apiApp.use(express.json({ limit: maxSyncBytes }));
 
 apiApp.get('/health', (_req, res) => {
   try {
@@ -176,7 +195,7 @@ apiApp.get('/info', (_req, res) => {
       status: 'online',
       message: process.env.STATUS_MESSAGE || '',
       allowNewSyncs: process.env.ALLOW_NEW_SYNCS !== 'false',
-      maxSyncSizeBytes: Number(process.env.MAX_SYNC_SIZE_BYTES) || 1048576,
+      maxSyncSizeBytes: maxSyncBytes,
       multiUser: true,
       /** UI clock: '12h' | '24h' (from TIME_FORMAT env). Extensions + admin honor this. */
       timeFormat: resolveTimeFormat(),
@@ -211,14 +230,20 @@ code{background:#f4f4f4;padding:.1em .35em;border-radius:4px}
 </body></html>`);
 });
 
+apiApp.get('/api/me', requireApiKey, bookmarkControllerMe);
 apiApp.use('/api/bookmarks', bookmarksRouter);
 apiApp.use(jsonErrorHandler);
+
+function bookmarkControllerMe(req, res) {
+  res.json({ id: req.user.id, username: req.user.username });
+}
 
 // --- Admin portal (ADMIN_PORT) ---
 const adminApp = express();
 applyTrustProxy(adminApp);
 adminApp.use(createHelmet());
 adminApp.use(morgan(morganFormat, { stream: morganStream }));
+adminApp.use(warnIfUntrustedForwarded);
 adminApp.use(express.urlencoded({ extended: false }));
 // Admin session lifetime via SESSION_MAX_AGE_MINUTES (default 15). rolling: true
 // refreshes the cookie on each request so active admins are not logged out mid-work.
@@ -261,6 +286,13 @@ function initRuntime() {
   getDb();
   bootstrapAdmin();
   loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));
+  try {
+    const purged = Bookmark.purgeExpiredTombstones();
+    if (purged.deleted) logger.info('Purged expired tombstones', purged);
+  } catch (err) {
+    logger.error('Tombstone purge failed', { err: err.message });
+  }
+  if (needsSetup()) ensureSetupToken();
 }
 
 /**
@@ -282,6 +314,23 @@ function start() {
   const publicAdminPort = Number(process.env.PUBLIC_ADMIN_PORT) || ADMIN_PORT;
   const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'bookmarks.db');
   const logCfg = getLogConfig();
+
+  const trust = String(process.env.TRUST_PROXY || '').trim().toLowerCase();
+  if (!trust || trust === 'false' || trust === '0') {
+    logger.info(
+      'TRUST_PROXY is disabled. Enable it when a reverse proxy sets X-Forwarded-For, or per-IP rate limits will treat every client as the proxy.'
+    );
+  }
+
+  const purgeTimer = setInterval(() => {
+    try {
+      const purged = Bookmark.purgeExpiredTombstones();
+      if (purged.deleted) logger.info('Purged expired tombstones', purged);
+    } catch (err) {
+      logger.error('Tombstone purge failed', { err: err.message });
+    }
+  }, 24 * 60 * 60 * 1000);
+  if (typeof purgeTimer.unref === 'function') purgeTimer.unref();
 
   const apiServer = apiApp.listen(API_PORT, HOST, () => {
     logger.info('API listening', {

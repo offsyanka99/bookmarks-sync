@@ -47,7 +47,7 @@ describe('Admin HTTP', () => {
     assert.ok([401, 302, 303, 503].includes(res.status));
   });
 
-  it('login works after creating admin', async () => {
+  it('login works after creating admin and rejects a missing CSRF token', async () => {
     User.create({
       username: 'admin',
       password: 'strong-password-1',
@@ -56,15 +56,33 @@ describe('Admin HTTP', () => {
     });
     assert.equal(needsSetup(), false);
 
-    const agent = request.agent(adminApp);
-    const res = await agent
-      .post('/login')
-      .type('form')
-      .send({ username: 'admin', password: 'strong-password-1' });
-    assert.ok([200, 302, 303].includes(res.status));
-    // Successful login usually redirects to /
-    if (res.status === 302 || res.status === 303) {
-      assert.ok(res.headers.location);
+    const server = adminApp.listen(0, '127.0.0.1');
+    await new Promise((resolve) => server.once('listening', resolve));
+    try {
+      const origin = `http://127.0.0.1:${server.address().port}`;
+      const agent = request.agent(origin);
+      const denied = await agent
+        .post('/login')
+        .set('Origin', origin)
+        .type('form')
+        .send({ username: 'admin', password: 'strong-password-1' });
+      assert.equal(denied.status, 403);
+
+      const page = await agent.get('/login');
+      assert.equal(page.status, 200);
+      const token = /name="_csrf" value="([^"]+)"/.exec(page.text)?.[1];
+      assert.ok(token);
+      const res = await agent
+        .post('/login')
+        .set('Origin', origin)
+        .type('form')
+        .send({ username: 'admin', password: 'strong-password-1', _csrf: token });
+      assert.ok([200, 302, 303].includes(res.status));
+      if (res.status === 302 || res.status === 303) {
+        assert.ok(res.headers.location);
+      }
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
     }
   });
 });

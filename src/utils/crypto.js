@@ -30,6 +30,21 @@ function generateApiKey() {
   return `bms_${crypto.randomBytes(32).toString('hex')}`;
 }
 
+/** sha256 hex of an API key. Stored value is never the raw key. */
+function hashApiKey(apiKey) {
+  return crypto.createHash('sha256').update(String(apiKey), 'utf8').digest('hex');
+}
+
+/** True when the stored column already holds a sha256 hex digest. */
+function isApiKeyHash(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+/** Short prefix shown in the admin UI (raw key, not the hash). */
+function apiKeyPrefix(apiKey) {
+  return String(apiKey || '').slice(0, 12);
+}
+
 function generateSessionSecret() {
   return crypto.randomBytes(32).toString('hex');
 }
@@ -38,5 +53,8 @@ module.exports = {
   hashPassword,
   verifyPassword,
   generateApiKey,
+  hashApiKey,
+  isApiKeyHash,
+  apiKeyPrefix,
   generateSessionSecret,
 };

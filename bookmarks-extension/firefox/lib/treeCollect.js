@@ -5,9 +5,11 @@
 import {
   DIR_TAG,
   encodeFolder,
+  encodePath,
   classifyRootNode,
   kindFromFixedRootId,
   isFixedBrowserRootId,
+  isMenuMirrorTitle,
 } from './folderCodec.js';
 import { debugWarn } from './debugLog.js';
 
@@ -87,18 +89,21 @@ export async function clearManagedBookmarkRoots() {
 export async function collectLocalBookmarks() {
   const tree = await chrome.bookmarks.getTree();
   const treeRootId = tree[0] ? String(tree[0].id) : '0';
+  const roots = await getRootIds();
+  const hasMenuRoot = Boolean(roots.menuId);
   const out = [];
 
-  function walk(nodes, pathParts, rootKind, underManagedRoot) {
+  function walk(nodes, pathParts, rootKind, underManagedRoot, parentLocalId) {
     let pos = 0;
     for (const node of nodes || []) {
       if (node.url) {
         out.push({
           localId: String(node.id),
+          parentLocalId: parentLocalId || null,
           kind: 'url',
           title: node.title || '',
           url: node.url,
-          folder: encodeFolder(rootKind || 'other', pathParts.join('/')),
+          folder: encodeFolder(rootKind || 'other', encodePath(pathParts)),
           position: pos,
           tags: [],
           dateAdded: node.dateAdded,
@@ -117,22 +122,39 @@ export async function collectLocalBookmarks() {
         }
 
         if (classified) {
-          walk(node.children, [], classified, true);
+          walk(node.children, [], classified, true, null);
+          continue;
+        }
+
+        // Chromium has no menu root. A "Bookmarks Menu" folder directly under
+        // Other Bookmarks is the mirror of Firefox's menu, not a user folder.
+        const mirrorParent =
+          !hasMenuRoot &&
+          underManagedRoot &&
+          rootKind === 'other' &&
+          !parentLocalId &&
+          String(node.parentId) === String(roots.otherId) &&
+          isMenuMirrorTitle(node.title);
+        if (mirrorParent) {
+          walk(node.children, [], 'menu', true, null);
           continue;
         }
 
         // Skip non-bookmark pseudo-nodes at the tree root without treating
         // them as user folders (e.g. rare containers). Nested fixed roots only.
         if (isTopLevel && !underManagedRoot && isFixedBrowserRootId(node.id)) {
-          walk(node.children, pathParts, rootKind || 'other', underManagedRoot);
+          walk(node.children, pathParts, rootKind || 'other', underManagedRoot, parentLocalId);
           continue;
         }
 
-        const parentFolder = encodeFolder(rootKind || 'other', pathParts.join('/'));
+        const title = node.title || '';
+        const segment = title || '(untitled)';
+        const parentFolder = encodeFolder(rootKind || 'other', encodePath(pathParts));
         out.push({
           localId: String(node.id),
+          parentLocalId: parentLocalId || null,
           kind: 'folder',
-          title: node.title || 'Folder',
+          title,
           url: '',
           folder: parentFolder,
           position: pos,
@@ -143,15 +165,16 @@ export async function collectLocalBookmarks() {
         pos += 1;
         walk(
           node.children,
-          [...pathParts, node.title || 'Folder'],
+          [...pathParts, segment],
           rootKind || 'other',
-          underManagedRoot
+          underManagedRoot,
+          String(node.id)
         );
       }
     }
   }
 
   // Top-level: allow title match so Brave "Bookmarks bar" / Firefox "Bookmarks Toolbar" map correctly.
-  walk(tree[0]?.children || tree, [], 'other', false);
+  walk(tree[0]?.children || tree, [], 'other', false, null);
   return out;
 }

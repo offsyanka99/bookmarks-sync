@@ -1,4 +1,4 @@
-const { layout, escapeHtml } = require('./layout');
+const { layout, escapeHtml, csrfInput } = require('./layout');
 
 /**
  * Emit a <time> with ISO datetime. Visible text is filled by the page script
@@ -19,7 +19,9 @@ function usersPage({
   logConfig = null,
   timeFormat = '24h',
   sessionMaxAgeMs = 0,
+  csrfToken = '',
 }) {
+  const csrf = csrfInput(csrfToken);
   const rows = users
     .map((u) => {
       const badge = u.isAdmin
@@ -44,36 +46,7 @@ function usersPage({
             <div class="muted small">${escapeHtml(u.displayName || '')}</div>
           </td>
           <td class="mono small">
-            <div class="api-key-row">
-              ${
-                u.apiKey
-                  ? `<code class="api-key is-masked" data-key="${escapeHtml(u.apiKey)}" title="API key hidden — click view to reveal" aria-label="API key for ${escapeHtml(u.username)} (hidden)">••••••••••••••••••••••••</code>
-              <div class="api-key-actions">
-                <button type="button" class="btn btn-icon btn-toggle-key" title="View API key" aria-label="View API key for ${escapeHtml(u.username)}" aria-pressed="false">
-                  <svg class="icon-eye" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                  <svg class="icon-eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path>
-                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path>
-                    <line x1="1" y1="1" x2="23" y2="23"></line>
-                    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"></path>
-                  </svg>
-                </button>
-                <button type="button" class="btn btn-icon btn-copy-key" data-copy="${escapeHtml(u.apiKey)}" title="Copy API key" aria-label="Copy API key for ${escapeHtml(u.username)}">
-                  <svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                  <svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                </button>
-              </div>`
-                  : '<span class="muted">—</span>'
-              }
-            </div>
+            <code title="Full key is shown once, when the user is created or the key is regenerated">${escapeHtml(u.apiKeyPrefix || '—')}</code>
           </td>
           <td class="num">
             ${bmCount}
@@ -91,22 +64,26 @@ function usersPage({
               data-confirm="dedupe-bookmarks"
               data-username="${escapeHtml(u.username)}"
               data-count="${dupExtra}">
+              ${csrf}
               <button type="submit" class="btn btn-small btn-ghost" ${dupExtra === 0 ? 'disabled' : ''} title="Soft-delete same-folder URL duplicates (keep newest)">Dedupe</button>
             </form>
             <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-confirm-action"
               data-confirm="clear-bookmarks"
               data-username="${escapeHtml(u.username)}"
               data-count="${bmCount}">
+              ${csrf}
               <button type="submit" class="btn btn-small btn-ghost" ${bmCount === 0 ? 'disabled' : ''}>Clear bookmarks</button>
             </form>
             <form method="post" action="/users/${escapeHtml(u.id)}/regenerate-key" class="inline form-confirm-action"
               data-confirm="regenerate-key"
               data-username="${escapeHtml(u.username)}">
+              ${csrf}
               <button type="submit" class="btn btn-small">New API key</button>
             </form>
             ${
               u.isAdmin
                 ? `<form method="post" action="/users/${escapeHtml(u.id)}/password" class="password-form">
+              ${csrf}
               <input type="password" name="password" placeholder="New password" required minlength="8" autocomplete="new-password" />
               <button type="submit" class="btn btn-small">Set password</button>
             </form>`
@@ -116,12 +93,14 @@ function usersPage({
               isSelf
                 ? '<span class="muted small">you</span>'
                 : `<form method="post" action="/users/${escapeHtml(u.id)}/${toggleAction}" class="inline">
+                    ${csrf}
                     <button type="submit" class="btn btn-small btn-ghost">${toggleLabel}</button>
                   </form>
                   <form method="post" action="/users/${escapeHtml(u.id)}/delete" class="inline form-confirm-action"
                     data-confirm="delete-user"
                     data-username="${escapeHtml(u.username)}"
                     data-count="${bmCount}">
+                    ${csrf}
                     <button type="submit" class="btn btn-small btn-danger">Delete</button>
                   </form>`
             }
@@ -142,6 +121,7 @@ function usersPage({
     <section class="card">
       <h2>Create user</h2>
       <form method="post" action="/users" class="form-grid" id="form-create-user">
+        ${csrf}
         <label>
           Username
           <input type="text" name="username" required minlength="2" pattern="[A-Za-z0-9._\\-]+" autocomplete="off" />
@@ -177,7 +157,7 @@ function usersPage({
           <thead>
             <tr>
               <th>User</th>
-              <th>API key</th>
+              <th title="Prefix only. The full key is shown once, in the notice after create or regenerate.">API key</th>
               <th title="URL bookmarks only (folders excluded)">Bookmarks</th>
               <th>Created</th>
               <th>Actions</th>
@@ -197,6 +177,7 @@ function usersPage({
         <code>${escapeHtml(logConfig?.logDir || 'data/logs')}</code>.
       </p>
       <form method="post" action="/settings/log-level" class="form-grid">
+        ${csrf}
         <label>
           Log level
           <select name="level" required>
@@ -226,9 +207,11 @@ function usersPage({
       <p class="muted small">
         Reset this instance to a clean first-run state. Deletes <strong>all users</strong>
         (including admins), <strong>all bookmarks</strong>, and the database file.
+        A copy is saved next to the database as <span class="mono">bookmarks.db.bak-before-reset-…</span> first.
         You will be logged out and sent to the setup screen.
       </p>
       <form method="post" action="/settings/reset" id="form-reset-default" class="form-reset-default">
+        ${csrf}
         <input type="hidden" name="confirm_reset" id="reset-confirm-value" value="" />
         <div class="form-actions">
           <button type="submit" class="btn btn-danger" id="btn-reset-default">Reset to default</button>
@@ -657,7 +640,7 @@ function usersPage({
       })();
     </script>`;
 
-  return layout({ title: 'Users', user, flash, body, sessionMaxAgeMs });
+  return layout({ title: 'Users', user, flash, body, sessionMaxAgeMs, csrfToken });
 }
 
 module.exports = { usersPage };

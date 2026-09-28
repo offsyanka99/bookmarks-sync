@@ -1,6 +1,6 @@
 # Bookmarks Sync — Browser Extensions
 
-**Extension package version:** `1.1.3` (Chrome / Firefox source). Server is versioned separately (`package.json`).
+**Extension package version:** `1.2.0` (Chrome / Firefox source). Server is versioned separately (`package.json`, currently **1.3.0**).
 
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 
@@ -83,7 +83,8 @@ Packaging / re-publish for the store: **[CHROME-STORE.md](./CHROME-STORE.md)**
 Temporary add-ons are **deleted when Firefox quits**. For a real install on **release Firefox**, use a **Mozilla-signed** `.xpi` (same extension id):
 
 ```text
-dist/bookmarks-sync-firefox-1.1.3.xpi   # current (Mozilla-signed)
+dist/bookmarks-sync-firefox-1.1.3.xpi   # last Mozilla-signed build (1.1.3)
+dist/bookmarks-sync-chrome-1.2.0.zip    # current Chrome package
 dist/bookmarks-sync-firefox.xpi         # same as latest signed
 ```
 
@@ -136,7 +137,8 @@ bookmarks-extension/
 | Install Chrome (users) | [Chrome Web Store](https://chromewebstore.google.com/detail/bookmarks-sync/ndiehbfpikbmhdgffcfohoeojlmfbpal) |
 | Pack Chrome store ZIP | `npm run ext:pack-chrome` → `dist/bookmarks-sync-chrome-*.zip` — see [CHROME-STORE.md](./CHROME-STORE.md) |
 | Pack unsigned Firefox `.xpi` | `npm run ext:pack-firefox` → `dist/bookmarks-sync-firefox.xpi` |
-| Install Firefox (release) | **`dist/bookmarks-sync-firefox-1.1.3.xpi`** (Mozilla-signed) — see FIREFOX-INSTALL.md |
+| Install Firefox (signed) | **`dist/bookmarks-sync-firefox-1.1.3.xpi`** (Mozilla-signed **1.1.3**) until 1.2.0 is signed — see FIREFOX-INSTALL.md |
+| Install Chrome (unpacked / store zip) | **`dist/bookmarks-sync-chrome-1.2.0.zip`** |
 | Load Chromium (dev) | Unpacked → **`chrome/`** |
 | Load Firefox (dev) | Temporary add-on → **`firefox/`** |
 

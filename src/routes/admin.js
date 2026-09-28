@@ -1,8 +1,11 @@
 const express = require('express');
 const adminController = require('../controllers/adminController');
 const { requireAdmin } = require('../middleware/auth');
+const { csrfMiddleware } = require('../middleware/csrf');
 
 const router = express.Router();
+
+router.use(csrfMiddleware);
 
 // First-run setup (only while no admin exists)
 router.get('/setup', adminController.showSetup);

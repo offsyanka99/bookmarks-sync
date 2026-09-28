@@ -1,14 +1,21 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../utils/db');
-const { hashPassword, verifyPassword, generateApiKey } = require('../utils/crypto');
+const {
+  hashPassword,
+  verifyPassword,
+  generateApiKey,
+  hashApiKey,
+  apiKeyPrefix,
+} = require('../utils/crypto');
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function rowToUser(row, { includeApiKey = false } = {}) {
+function rowToUser(row) {
   if (!row) return null;
-  const user = {
+  const prefix = row.api_key_prefix || '';
+  return {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
@@ -16,12 +23,17 @@ function rowToUser(row, { includeApiKey = false } = {}) {
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    apiKeyPrefix: row.api_key ? `${row.api_key.slice(0, 12)}…` : null,
+    apiKeyPrefix: prefix ? `${prefix}…` : null,
   };
-  if (includeApiKey) {
-    user.apiKey = row.api_key;
-  }
-  return user;
+}
+
+function withPlainApiKey(user, apiKey) {
+  if (!user) return null;
+  return {
+    ...user,
+    apiKey,
+    apiKeyPrefix: `${apiKeyPrefix(apiKey)}…`,
+  };
 }
 
 class User {
@@ -29,23 +41,23 @@ class User {
     const db = getDb();
     const rows = db
       .prepare(
-        `SELECT id, username, display_name, api_key, is_admin, is_active, created_at, updated_at
+        `SELECT id, username, display_name, api_key_prefix, is_admin, is_active, created_at, updated_at
          FROM users ORDER BY is_admin DESC, username ASC`
       )
       .all();
-    return rows.map((r) => rowToUser(r, { includeApiKey: true }));
+    return rows.map((r) => rowToUser(r));
   }
 
-  static findById(id, { includeApiKey = false } = {}) {
+  static findById(id) {
     const db = getDb();
     const row = db
       .prepare(
-        `SELECT id, username, display_name, api_key, password_hash, is_admin, is_active, created_at, updated_at
+        `SELECT id, username, display_name, api_key_prefix, password_hash, is_admin, is_active, created_at, updated_at
          FROM users WHERE id = ?`
       )
       .get(id);
     if (!row) return null;
-    const user = rowToUser(row, { includeApiKey });
+    const user = rowToUser(row);
     user._passwordHash = row.password_hash;
     return user;
   }
@@ -54,14 +66,13 @@ class User {
     const db = getDb();
     const row = db
       .prepare(
-        `SELECT id, username, display_name, api_key, password_hash, is_admin, is_active, created_at, updated_at
+        `SELECT id, username, display_name, api_key_prefix, password_hash, is_admin, is_active, created_at, updated_at
          FROM users WHERE username = ? COLLATE NOCASE`
       )
       .get(username);
     if (!row) return null;
-    const user = rowToUser(row, { includeApiKey: false });
+    const user = rowToUser(row);
     user._passwordHash = row.password_hash;
-    user.apiKey = row.api_key;
     return user;
   }
 
@@ -70,11 +81,11 @@ class User {
     const db = getDb();
     const row = db
       .prepare(
-        `SELECT id, username, display_name, api_key, is_admin, is_active, created_at, updated_at
+        `SELECT id, username, display_name, api_key_prefix, is_admin, is_active, created_at, updated_at
          FROM users WHERE api_key = ? AND is_active = 1`
       )
-      .get(apiKey);
-    return rowToUser(row, { includeApiKey: false });
+      .get(hashApiKey(apiKey));
+    return rowToUser(row);
   }
 
   static count() {
@@ -130,15 +141,16 @@ class User {
     try {
       db.prepare(
         `INSERT INTO users
-          (id, username, password_hash, display_name, api_key, is_admin, is_active, created_at, updated_at)
+          (id, username, password_hash, display_name, api_key, api_key_prefix, is_admin, is_active, created_at, updated_at)
          VALUES
-          (@id, @username, @password_hash, @display_name, @api_key, @is_admin, 1, @created_at, @updated_at)`
+          (@id, @username, @password_hash, @display_name, @api_key, @api_key_prefix, @is_admin, 1, @created_at, @updated_at)`
       ).run({
         id,
         username: normalized,
         password_hash: passwordHash,
         display_name: displayName || normalized,
-        api_key: apiKey,
+        api_key: hashApiKey(apiKey),
+        api_key_prefix: apiKeyPrefix(apiKey),
         is_admin: isAdmin ? 1 : 0,
         created_at: ts,
         updated_at: ts,
@@ -150,7 +162,7 @@ class User {
       throw err;
     }
 
-    return this.findById(id, { includeApiKey: true });
+    return withPlainApiKey(this.findById(id), apiKey);
   }
 
   static updatePassword(id, password) {
@@ -185,10 +197,12 @@ class User {
     const db = getDb();
     const apiKey = generateApiKey();
     const result = db
-      .prepare(`UPDATE users SET api_key = ?, updated_at = ? WHERE id = ?`)
-      .run(apiKey, nowIso(), id);
+      .prepare(
+        `UPDATE users SET api_key = ?, api_key_prefix = ?, updated_at = ? WHERE id = ?`
+      )
+      .run(hashApiKey(apiKey), apiKeyPrefix(apiKey), nowIso(), id);
     if (result.changes === 0) return null;
-    return this.findById(id, { includeApiKey: true });
+    return withPlainApiKey(this.findById(id), apiKey);
   }
 
   static delete(id) {
@@ -202,6 +216,7 @@ class User {
 
     const run = db.transaction(() => {
       db.prepare('DELETE FROM bookmarks WHERE user_id = ?').run(id);
+      db.prepare('DELETE FROM user_change_seq WHERE user_id = ?').run(id);
       return db.prepare('DELETE FROM users WHERE id = ?').run(id);
     });
     return run().changes > 0;

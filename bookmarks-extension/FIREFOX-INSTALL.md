@@ -14,10 +14,10 @@ For a **permanent** install that **survives restarts** and **keeps Options** (AP
 A **signed** release package is under `dist/`:
 
 ```text
-dist/bookmarks-sync-firefox-1.1.3.xpi   # current (Mozilla-signed, AMO)
+dist/bookmarks-sync-firefox-1.1.3.xpi   # last Mozilla-signed build (1.1.3)
 dist/bookmarks-sync-firefox-1.1.1.xpi   # previous signed release
 dist/bookmarks-sync-firefox-1.1.0.xpi   # older signed release
-dist/bookmarks-sync-firefox.xpi         # stable name = latest signed (1.1.3)
+dist/bookmarks-sync-firefox.xpi         # stable name = latest signed (still 1.1.3 until 1.2.0 is signed)
 ```
 
 AMO may also name downloads like `befd3a8e446247cfa279-1.1.3.xpi` — same signed bytes; prefer the names above in the repo.
@@ -112,6 +112,16 @@ Then finish listing text / review in the [AMO developer hub](https://addons.mozi
 2. Commit the **signed** XPIs under `dist/` (and this doc if version notes changed).
 3. Users update via **Install Add-on From File** with the same gecko id (settings kept).
 
+### What’s new in 1.2.0
+
+- Merge sends changes and tombstones; `syncCursor` comes from the server
+- Switching server URL or account clears the local id map and snapshot
+- Chrome keeps Firefox Bookmarks Menu bookmarks in a **Bookmarks Menu** folder
+- Folder identity uses `parentId` (a `/` in a title is one folder)
+- Needs Bookmarks Sync server **1.3.0** for the cursor, per-user ids, and `parentId`
+
+The signed file in this repo is still **1.1.3** until `npm run ext:sign-firefox` is run for 1.2.0.
+
 ### What’s new in 1.1.3
 
 - Multi-browser **delete fix**: tombstones + sticky soft-deletes
@@ -138,7 +148,7 @@ From the **repo root**:
 
 ```bash
 npm run ext:pack-firefox
-# → dist/bookmarks-sync-firefox-1.1.3.xpi  (unsigned)
+# → dist/bookmarks-sync-firefox-1.2.0.xpi  (unsigned)
 # → dist/bookmarks-sync-firefox.xpi        (same, unsigned)
 ```
 

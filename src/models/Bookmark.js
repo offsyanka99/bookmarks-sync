@@ -1,5 +1,7 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../utils/db');
+const { canonicalIso } = require('../utils/timeCanon');
+const { encodePageToken, decodePageToken } = require('../utils/pageToken');
 
 function nowIso() {
   return new Date().toISOString();
@@ -34,6 +36,8 @@ function rowToBookmark(row) {
     notes: row.notes,
     favicon: row.favicon,
     position: row.position,
+    parentId: row.parent_id || null,
+    seq: Number(row.seq) || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -45,6 +49,51 @@ function tsMs(iso) {
   if (!iso) return 0;
   const t = Date.parse(iso);
   return Number.isFinite(t) ? t : 0;
+}
+
+function canonicalOr(value, fallback) {
+  return canonicalIso(value) || fallback;
+}
+
+function cleanParentId(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+/** Next per-user change sequence. Gaps are fine; the value only moves forward. */
+function bumpSeq(db, userId) {
+  db.prepare(
+    `INSERT INTO user_change_seq (user_id, seq) VALUES (?, 1)
+     ON CONFLICT(user_id) DO UPDATE SET seq = seq + 1`
+  ).run(userId);
+  return db.prepare('SELECT seq FROM user_change_seq WHERE user_id = ?').get(userId).seq;
+}
+
+/**
+ * Prefer an explicit sync cursor. Numeric lastSyncAt is a cursor too.
+ * Anything else that parses as a timestamp stays on the legacy time window.
+ * @returns {{ type: 'seq', value: number } | { type: 'time', value: string } | { type: 'none' }}
+ */
+function resolveSyncCursor(syncCursor, lastSyncAt) {
+  const asSeq = (value) => {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return Math.floor(value);
+    }
+    if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+      return Number(value.trim());
+    }
+    return null;
+  };
+  const fromCursor = asSeq(syncCursor);
+  if (fromCursor != null) return { type: 'seq', value: fromCursor };
+  const fromLast = asSeq(lastSyncAt);
+  if (fromLast != null) return { type: 'seq', value: fromLast };
+  if (typeof lastSyncAt === 'string' && lastSyncAt.trim()) {
+    const iso = canonicalIso(lastSyncAt);
+    if (iso) return { type: 'time', value: iso };
+  }
+  return { type: 'none' };
 }
 
 /**
@@ -96,8 +145,8 @@ function duplicateKey(folder, url) {
 }
 
 const SELECT_COLS = `
-  id, user_id, title, url, folder, tags, notes, favicon, position,
-  created_at, updated_at, deleted_at
+  id, user_id, title, url, folder, parent_id, tags, notes, favicon, position,
+  created_at, updated_at, deleted_at, seq
 `;
 
 function requireUserId(userId) {
@@ -363,21 +412,23 @@ class Bookmark {
       title: data.title ?? '',
       url: data.url,
       folder: data.folder ?? '',
+      parent_id: cleanParentId(data.parentId),
       tags: serializeTags(data.tags),
       notes: data.notes ?? '',
       favicon: data.favicon ?? null,
       position: Number.isFinite(data.position) ? data.position : 0,
-      created_at: data.createdAt || ts,
-      updated_at: data.updatedAt || ts,
-      deleted_at: data.deletedAt ?? null,
+      created_at: canonicalOr(data.createdAt, ts),
+      updated_at: canonicalOr(data.updatedAt, ts),
+      deleted_at: data.deletedAt ? canonicalOr(data.deletedAt, ts) : null,
+      seq: bumpSeq(db, userId),
     };
 
     try {
       db.prepare(
         `INSERT INTO bookmarks
-          (id, user_id, title, url, folder, tags, notes, favicon, position, created_at, updated_at, deleted_at)
+          (id, user_id, title, url, folder, parent_id, tags, notes, favicon, position, created_at, updated_at, deleted_at, seq)
          VALUES
-          (@id, @user_id, @title, @url, @folder, @tags, @notes, @favicon, @position, @created_at, @updated_at, @deleted_at)`
+          (@id, @user_id, @title, @url, @folder, @parent_id, @tags, @notes, @favicon, @position, @created_at, @updated_at, @deleted_at, @seq)`
       ).run(record);
     } catch (err) {
       if (err && String(err.code || '').includes('CONSTRAINT')) {
@@ -438,6 +489,8 @@ class Bookmark {
       title: data.title !== undefined ? data.title : existing.title,
       url: data.url !== undefined ? data.url : existing.url,
       folder: data.folder !== undefined ? data.folder : existing.folder,
+      parent_id:
+        data.parentId !== undefined ? cleanParentId(data.parentId) : existing.parentId,
       tags: data.tags !== undefined ? serializeTags(data.tags) : serializeTags(existing.tags),
       notes: data.notes !== undefined ? data.notes : existing.notes,
       favicon: data.favicon !== undefined ? data.favicon : existing.favicon,
@@ -446,7 +499,13 @@ class Bookmark {
           ? data.position
           : existing.position,
       updated_at: nowIso(),
-      deleted_at: data.deletedAt !== undefined ? data.deletedAt : existing.deletedAt,
+      deleted_at:
+        data.deletedAt !== undefined
+          ? data.deletedAt
+            ? canonicalOr(data.deletedAt, nowIso())
+            : null
+          : existing.deletedAt,
+      seq: bumpSeq(db, userId),
     };
 
     db.prepare(
@@ -454,12 +513,14 @@ class Bookmark {
         title = @title,
         url = @url,
         folder = @folder,
+        parent_id = @parent_id,
         tags = @tags,
         notes = @notes,
         favicon = @favicon,
         position = @position,
         updated_at = @updated_at,
-        deleted_at = @deleted_at
+        deleted_at = @deleted_at,
+        seq = @seq
        WHERE id = @id AND user_id = @user_id`
     ).run(updated);
 
@@ -502,9 +563,10 @@ class Bookmark {
 
     const db = getDb();
     const ts = nowIso();
+    const seq = bumpSeq(db, userId);
     db.prepare(
-      `UPDATE bookmarks SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`
-    ).run(ts, ts, id, userId);
+      `UPDATE bookmarks SET deleted_at = ?, updated_at = ?, seq = ? WHERE id = ? AND user_id = ?`
+    ).run(ts, ts, seq, id, userId);
 
     return {
       ok: true,
@@ -552,9 +614,19 @@ class Bookmark {
    * @param {string} userId
    * @param {{ since?: string|null }} [opts]
    */
-  static findDeleted(userId, { since = null } = {}) {
+  static findDeleted(userId, { since = null, sinceSeq = null } = {}) {
     userId = requireUserId(userId);
     const db = getDb();
+    if (sinceSeq != null) {
+      const rows = db
+        .prepare(
+          `SELECT ${SELECT_COLS} FROM bookmarks
+           WHERE user_id = ? AND deleted_at IS NOT NULL AND seq > ?
+           ORDER BY seq ASC, id ASC`
+        )
+        .all(userId, sinceSeq);
+      return rows.map(rowToBookmark);
+    }
     if (since) {
       const rows = db
         .prepare(
@@ -575,6 +647,121 @@ class Bookmark {
     return rows.map(rowToBookmark);
   }
 
+  static currentSeq(userId) {
+    userId = requireUserId(userId);
+    const row = getDb()
+      .prepare('SELECT seq FROM user_change_seq WHERE user_id = ?')
+      .get(userId);
+    return row ? Number(row.seq) || 0 : 0;
+  }
+
+  static tombstoneHorizon(userId) {
+    userId = requireUserId(userId);
+    return {
+      seq: Number(this.getMeta(`tombstone_horizon_seq:${userId}`) || 0) || 0,
+      at: this.getMeta(`tombstone_horizon_at:${userId}`) || null,
+    };
+  }
+
+  /**
+   * Active or deleted rows with seq greater than sinceSeq.
+   * sinceSeq null returns the whole set (active via findAll, deleted via findDeleted).
+   */
+  static findSince(userId, { sinceSeq = null, deleted = false } = {}) {
+    userId = requireUserId(userId);
+    if (sinceSeq == null) {
+      return deleted ? this.findDeleted(userId) : this.findAll(userId);
+    }
+    const rows = getDb()
+      .prepare(
+        `SELECT ${SELECT_COLS} FROM bookmarks
+         WHERE user_id = ?
+           AND ${deleted ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL'}
+           AND seq > ?
+         ORDER BY seq ASC, id ASC`
+      )
+      .all(userId, sinceSeq);
+    return rows.map(rowToBookmark);
+  }
+
+  /**
+   * Keyset page ordered by (seq, id).
+   * @returns {{ bookmarks: object[], nextPageToken: string|null }}
+   */
+  static findChangedPage(
+    userId,
+    { sinceSeq = null, sinceTime = null, pageToken = null, pageSize = 500, deleted = false } = {}
+  ) {
+    userId = requireUserId(userId);
+    const limit = Math.min(2000, Math.max(1, Number(pageSize) || 500));
+    const after = decodePageToken(pageToken);
+    const conditions = ['user_id = @userId'];
+    conditions.push(deleted ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL');
+    const params = { userId, limit: limit + 1 };
+    if (sinceSeq != null) {
+      conditions.push('seq > @sinceSeq');
+      params.sinceSeq = sinceSeq;
+    }
+    if (deleted && sinceTime) {
+      conditions.push('updated_at >= @sinceTime');
+      params.sinceTime = sinceTime;
+    }
+    if (after) {
+      conditions.push('(seq > @afterSeq OR (seq = @afterSeq AND id > @afterId))');
+      params.afterSeq = after.seq;
+      params.afterId = after.id;
+    }
+    const rows = getDb()
+      .prepare(
+        `SELECT ${SELECT_COLS} FROM bookmarks
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY seq ASC, id ASC
+         LIMIT @limit`
+      )
+      .all(params);
+    let nextPageToken = null;
+    if (rows.length > limit) {
+      rows.length = limit;
+      const last = rows[rows.length - 1];
+      nextPageToken = encodePageToken({ seq: Number(last.seq) || 0, id: last.id });
+    }
+    return { bookmarks: rows.map(rowToBookmark), nextPageToken };
+  }
+
+  /**
+   * Drop soft-deleted rows older than the retention window and remember the
+   * highest purged seq. Clients whose cursor is behind that horizon must full-resync.
+   */
+  static purgeExpiredTombstones({ retentionDays = null } = {}) {
+    const configured = Number.isFinite(Number(retentionDays))
+      ? Number(retentionDays)
+      : Number(process.env.TOMBSTONE_RETENTION_DAYS) || 30;
+    if (!(configured > 0)) return { deleted: 0, cutoff: null, users: 0 };
+    const cutoff = new Date(Date.now() - configured * 24 * 60 * 60 * 1000).toISOString();
+    const db = getDb();
+    const horizons = db
+      .prepare(
+        `SELECT user_id AS userId, MAX(seq) AS maxSeq
+         FROM bookmarks
+         WHERE deleted_at IS NOT NULL AND deleted_at < ?
+         GROUP BY user_id`
+      )
+      .all(cutoff);
+    const result = db
+      .prepare('DELETE FROM bookmarks WHERE deleted_at IS NOT NULL AND deleted_at < ?')
+      .run(cutoff);
+    for (const row of horizons) {
+      const seqKey = `tombstone_horizon_seq:${row.userId}`;
+      const atKey = `tombstone_horizon_at:${row.userId}`;
+      const prev = Number(this.getMeta(seqKey) || 0) || 0;
+      const next = Number(row.maxSeq) || 0;
+      if (next > prev) this.setMeta(seqKey, String(next));
+      const prevAt = this.getMeta(atKey);
+      if (!prevAt || String(prevAt) < cutoff) this.setMeta(atKey, cutoff);
+    }
+    return { deleted: result.changes || 0, cutoff, users: horizons.length };
+  }
+
   /**
    * Sync from client:
    * - create if missing (or merge into same folder+url twin when ids differ)
@@ -584,7 +771,9 @@ class Bookmark {
    * - tombstones (deletedAt set): soft-delete when client time wins (LWW)
    * - sticky soft-delete: live payload cannot resurrect unless force=true
    * - replace: soft-delete server ids missing from live payload
-   *   (knownIds always eligible; otherwise only rows with updated_at <= lastSyncAt)
+   *   (knownIds always eligible; otherwise only rows inside the client's cursor)
+   * - changesOnly: tombstones are explicit; omitted ids are left alone
+   * - a tombstone for an id that this same batch merged into is ignored (re-add wins)
    */
   static syncFromClient(
     userId,
@@ -592,20 +781,34 @@ class Bookmark {
     {
       replace = false,
       lastSyncAt = null,
+      syncCursor = null,
       force = false,
       mergeDuplicates = true,
       knownIds = null,
+      changesOnly = false,
+      pageSize = null,
+      bookmarkPageToken = null,
+      tombstonePageToken = null,
     } = {}
   ) {
     userId = requireUserId(userId);
     const db = getDb();
     const ts = nowIso();
+    const cursor = resolveSyncCursor(syncCursor, lastSyncAt);
+    const horizon = this.tombstoneHorizon(userId);
+    let fullResync = false;
+    if (cursor.type === 'seq' && horizon.seq > 0 && cursor.value < horizon.seq) {
+      fullResync = true;
+    }
+    if (cursor.type === 'time' && horizon.at && cursor.value < horizon.at) {
+      fullResync = true;
+    }
 
     const insert = db.prepare(
       `INSERT INTO bookmarks
-        (id, user_id, title, url, folder, tags, notes, favicon, position, created_at, updated_at, deleted_at)
+        (id, user_id, title, url, folder, parent_id, tags, notes, favicon, position, created_at, updated_at, deleted_at, seq)
        VALUES
-        (@id, @user_id, @title, @url, @folder, @tags, @notes, @favicon, @position, @created_at, @updated_at, @deleted_at)`
+        (@id, @user_id, @title, @url, @folder, @parent_id, @tags, @notes, @favicon, @position, @created_at, @updated_at, @deleted_at, @seq)`
     );
 
     const updateRow = db.prepare(
@@ -613,33 +816,42 @@ class Bookmark {
         title = @title,
         url = @url,
         folder = @folder,
+        parent_id = @parent_id,
         tags = @tags,
         notes = @notes,
         favicon = @favicon,
         position = @position,
         updated_at = @updated_at,
-        deleted_at = @deleted_at
+        deleted_at = @deleted_at,
+        seq = @seq
        WHERE id = @id AND user_id = @user_id`
     );
 
     const softDeleteMissingAggressive = db.prepare(
-      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts
+      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts, seq = @seq
        WHERE user_id = @userId AND deleted_at IS NULL
          AND id NOT IN (SELECT value FROM json_each(@ids))`
     );
 
-    // Only soft-delete rows that have not been updated after the client's last sync
+    // Legacy clients: only soft-delete rows whose canonical updated_at is still inside the window.
     const softDeleteMissingSafe = db.prepare(
-      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts
+      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts, seq = @seq
        WHERE user_id = @userId AND deleted_at IS NULL
          AND id NOT IN (SELECT value FROM json_each(@ids))
          AND updated_at <= @lastSyncAt`
     );
 
-    // Client previously knew these ids and omitted them from the live set → delete
-    // even if another device bumped updated_at after this client's lastSyncAt.
+    // Seq cursor: rows changed after the client's high water stay.
+    const softDeleteMissingSafeSeq = db.prepare(
+      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts, seq = @seq
+       WHERE user_id = @userId AND deleted_at IS NULL
+         AND id NOT IN (SELECT value FROM json_each(@ids))
+         AND seq > 0 AND seq <= @syncCursor`
+    );
+
+    // Client previously knew these ids and omitted them from the live set → delete.
     const softDeleteMissingKnown = db.prepare(
-      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts
+      `UPDATE bookmarks SET deleted_at = @ts, updated_at = @ts, seq = @seq
        WHERE user_id = @userId AND deleted_at IS NULL
          AND id NOT IN (SELECT value FROM json_each(@ids))
          AND id IN (SELECT value FROM json_each(@knownIds))`
@@ -658,6 +870,15 @@ class Bookmark {
     const merges = [];
     /** @type {Set<string>} server ids soft-deleted or confirmed deleted this run */
     const tombstoneIdsTouched = new Set();
+    /** Ids LWW refused to change. Replace must not delete them. */
+    const preserveIds = [];
+    /** Server ids a live row in this batch was merged into. Skip their tombstones. */
+    const mergeTargetIds = new Set();
+    const noteSkip = (existing) => {
+      stats.skipped += 1;
+      if (existing?.id) preserveIds.push(existing.id);
+    };
+    const withSeq = (row) => ({ ...row, seq: bumpSeq(db, userId) });
 
     /**
      * Apply update rules against an existing row (by resolved id).
@@ -674,7 +895,7 @@ class Bookmark {
           server: existing,
           client: item,
         });
-        stats.skipped += 1;
+        noteSkip(existing);
         return 'skipped';
       }
 
@@ -694,16 +915,18 @@ class Bookmark {
         // Client wins (delete wins ties against live rows)
         if (clientMs >= serverMs) {
           const delTs = clientDeletedAt || ts;
-          updateRow.run({
-            ...payload,
-            updated_at: delTs,
-            deleted_at: delTs,
-          });
+          updateRow.run(
+            withSeq({
+              ...payload,
+              updated_at: delTs,
+              deleted_at: delTs,
+            })
+          );
           stats.deleted += 1;
           tombstoneIdsTouched.add(existing.id);
           return 'deleted';
         }
-        // Server has a newer live revision — keep it
+        // Server has a newer live revision — keep it, and keep it out of replace.
         conflicts.push({
           id: existing.id,
           reason: 'server_newer',
@@ -714,7 +937,7 @@ class Bookmark {
             updatedAt: clientUpdatedAt,
           },
         });
-        stats.skipped += 1;
+        noteSkip(existing);
         return existing.deletedAt ? 'deleted' : 'skipped';
       }
 
@@ -733,13 +956,13 @@ class Bookmark {
             updatedAt: clientUpdatedAt,
           },
         });
-        stats.skipped += 1;
+        noteSkip(existing);
         tombstoneIdsTouched.add(existing.id);
         return 'deleted';
       }
 
       if (force) {
-        updateRow.run(payload);
+        updateRow.run(withSeq(payload));
         stats.updated += 1;
         return payload.deleted_at ? 'deleted' : 'live';
       }
@@ -751,13 +974,14 @@ class Bookmark {
         String(existing.title || '') !== String(payload.title || '') ||
         String(existing.url || '') !== String(payload.url || '') ||
         String(existing.folder || '') !== String(payload.folder || '') ||
+        String(existing.parentId || '') !== String(payload.parent_id || '') ||
         Number(existing.position) !== Number(payload.position) ||
         String(existing.notes || '') !== String(payload.notes || '') ||
         serializeTags(existing.tags) !== String(payload.tags || '[]') ||
         String(existing.favicon || '') !== String(payload.favicon || '');
 
       if (clientMs > serverMs) {
-        updateRow.run(payload);
+        updateRow.run(withSeq(payload));
         stats.updated += 1;
         return payload.deleted_at ? 'deleted' : 'live';
       }
@@ -775,12 +999,12 @@ class Bookmark {
             updatedAt: clientUpdatedAt,
           },
         });
-        stats.skipped += 1;
+        noteSkip(existing);
         return existing.deletedAt ? 'deleted' : 'live';
       }
       if (contentChanged) {
         // Same timestamp but order/folder/title/url differ — still apply (reorder case)
-        updateRow.run({ ...payload, updated_at: ts });
+        updateRow.run(withSeq({ ...payload, updated_at: ts }));
         stats.updated += 1;
         return payload.deleted_at ? 'deleted' : 'live';
       }
@@ -796,8 +1020,15 @@ class Bookmark {
       // Within one payload, track folder+url → first server id so batch dups collapse
       /** @type {Map<string, string>} */
       const batchUrlIndex = new Map();
-
+      const liveFirst = [];
+      const tombsLast = [];
       for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        if (item.deletedAt) tombsLast.push(item);
+        else liveFirst.push(item);
+      }
+
+      for (const item of liveFirst.concat(tombsLast)) {
         // Allow folder rows (empty url + __dir__ tag) and normal URL bookmarks
         const tagsArr = Array.isArray(item.tags)
           ? item.tags
@@ -820,41 +1051,53 @@ class Bookmark {
         // Tombstones only need an id; live rows need url/title as before
         if (isTombstone) {
           if (!item.id) continue;
+          // Same batch re-added this folder+url and merged into this id. Keep the row.
+          if (mergeTargetIds.has(String(item.id))) {
+            stats.unchanged += 1;
+            seenIds.push(String(item.id));
+            const kept = this.findById(userId, item.id, { includeDeleted: true });
+            if (kept && !kept.deletedAt) liveIds.push(kept.id);
+            continue;
+          }
         } else {
           if (!item.url && !item.id && !isDir) continue;
           if (isDir && !item.title && !item.id) continue;
         }
 
         let id = item.id || randomUUID();
-        const clientUpdatedAt = item.updatedAt || clientDeletedAt || ts;
+        const clientUpdatedAt = canonicalOr(item.updatedAt, null) || canonicalOr(clientDeletedAt, null) || ts;
+        const canonicalDeleted = clientDeletedAt ? canonicalOr(clientDeletedAt, ts) : null;
         const payload = {
           id,
           user_id: userId,
           title: item.title ?? '',
           url: item.url ?? '',
           folder: item.folder ?? '',
+          parent_id: cleanParentId(item.parentId),
           tags: serializeTags(
             isDir ? [...new Set([...tagsArr, '__dir__'])] : tagsArr
           ),
           notes: item.notes ?? '',
           favicon: item.favicon ?? null,
           position: Number.isFinite(item.position) ? item.position : 0,
-          created_at: item.createdAt || ts,
+          created_at: canonicalOr(item.createdAt, ts),
           updated_at: clientUpdatedAt,
-          deleted_at: clientDeletedAt,
+          deleted_at: canonicalDeleted,
         };
 
         let existing = this.findById(userId, id, { includeDeleted: true });
 
         // Tombstone for unknown id: record soft-deleted row so membership stays consistent
         if (!existing && isTombstone) {
-          const delTs = clientDeletedAt || ts;
-          insert.run({
-            ...payload,
-            created_at: item.createdAt || delTs,
-            updated_at: delTs,
-            deleted_at: delTs,
-          });
+          const delTs = canonicalDeleted || ts;
+          insert.run(
+            withSeq({
+              ...payload,
+              created_at: canonicalOr(item.createdAt, delTs),
+              updated_at: delTs,
+              deleted_at: delTs,
+            })
+          );
           stats.deleted += 1;
           tombstoneIdsTouched.add(id);
           seenIds.push(id);
@@ -877,6 +1120,7 @@ class Bookmark {
             : this.findActiveByFolderUrl(userId, payload.folder, payload.url);
 
           if (twin) {
+            mergeTargetIds.add(String(twin.id));
             merges.push({
               clientId: id,
               serverId: twin.id,
@@ -902,11 +1146,13 @@ class Bookmark {
         }
 
         if (!existing) {
-          insert.run({
-            ...payload,
-            created_at: item.createdAt || ts,
-            updated_at: clientUpdatedAt,
-          });
+          insert.run(
+            withSeq({
+              ...payload,
+              created_at: canonicalOr(item.createdAt, ts),
+              updated_at: clientUpdatedAt,
+            })
+          );
           if (isTombstone) {
             stats.deleted += 1;
             tombstoneIdsTouched.add(id);
@@ -925,11 +1171,15 @@ class Bookmark {
       }
 
       // Replace membership: soft-delete active server rows not in the live client set.
-      // Never run when the client sent no live rows (would wipe the library); upload uses force.
-      // Tombstones / sticky deletes are already applied above.
-      if (replace && liveIds.length > 0) {
-        const uniqueLive = [...new Set(liveIds)];
-        const idsJson = JSON.stringify(uniqueLive);
+      // changesOnly relies on explicit tombstones, so omission is not a delete.
+      // A stale cursor behind the tombstone horizon must not mass-delete either.
+      // Ids LWW kept (preserveIds) are added to the kept set so replace cannot undo that.
+      if (replace && !changesOnly && !fullResync && liveIds.length > 0) {
+        const protectedIds = [
+          ...new Set([...liveIds, ...preserveIds].filter(Boolean).map(String)),
+        ];
+        const idsJson = JSON.stringify(protectedIds);
+        const deleteSeq = bumpSeq(db, userId);
         let deletedCount = 0;
 
         const known = Array.isArray(knownIds)
@@ -938,6 +1188,7 @@ class Bookmark {
         if (known.length > 0) {
           const knownResult = softDeleteMissingKnown.run({
             ts,
+            seq: deleteSeq,
             userId,
             ids: idsJson,
             knownIds: JSON.stringify(known),
@@ -947,18 +1198,35 @@ class Bookmark {
 
         let result;
         if (force) {
-          result = softDeleteMissingAggressive.run({ ts, userId, ids: idsJson });
-        } else if (lastSyncAt) {
-          // Safe: do not delete rows updated on server after client last synced
-          // (unless already removed via knownIds above)
-          result = softDeleteMissingSafe.run({
+          result = softDeleteMissingAggressive.run({
             ts,
+            seq: deleteSeq,
             userId,
             ids: idsJson,
-            lastSyncAt,
+          });
+        } else if (cursor.type === 'seq' && cursor.value > 0) {
+          result = softDeleteMissingSafeSeq.run({
+            ts,
+            seq: deleteSeq,
+            userId,
+            ids: idsJson,
+            syncCursor: cursor.value,
+          });
+        } else if (cursor.type === 'time') {
+          result = softDeleteMissingSafe.run({
+            ts,
+            seq: deleteSeq,
+            userId,
+            ids: idsJson,
+            lastSyncAt: cursor.value,
           });
         } else {
-          result = softDeleteMissingAggressive.run({ ts, userId, ids: idsJson });
+          result = softDeleteMissingAggressive.run({
+            ts,
+            seq: deleteSeq,
+            userId,
+            ids: idsJson,
+          });
         }
         deletedCount += result.changes || 0;
         stats.deleted += deletedCount;
@@ -969,22 +1237,76 @@ class Bookmark {
 
     const processed = run(Array.isArray(bookmarks) ? bookmarks : []);
 
-    // Tombstones for peers: soft-deletes since lastSyncAt, plus any touched this run
-    let tombstones = this.findDeleted(userId, { since: lastSyncAt || null });
-    if (!lastSyncAt && tombstoneIdsTouched.size > 0) {
+    const useSeqWindow = changesOnly && !fullResync && cursor.type === 'seq';
+    const sinceSeq = useSeqWindow ? cursor.value : null;
+    const limit = pageSize == null ? null : Math.min(2000, Math.max(1, Number(pageSize) || 500));
+
+    let activeBookmarks;
+    let nextBookmarkToken = null;
+    let tombstones;
+    let nextTombstoneToken = null;
+
+    if (fullResync) {
+      if (limit) {
+        const page = this.findChangedPage(userId, {
+          sinceSeq: null,
+          pageToken: bookmarkPageToken,
+          pageSize: limit,
+          deleted: false,
+        });
+        activeBookmarks = page.bookmarks;
+        nextBookmarkToken = page.nextPageToken;
+      } else {
+        activeBookmarks = this.findAll(userId, { includeDeleted: false });
+      }
+      tombstones = [];
+    } else if (limit) {
+      const page = this.findChangedPage(userId, {
+        sinceSeq,
+        pageToken: bookmarkPageToken,
+        pageSize: limit,
+        deleted: false,
+      });
+      activeBookmarks = page.bookmarks;
+      nextBookmarkToken = page.nextPageToken;
+      if (cursor.type === 'none') {
+        tombstones = this.findDeleted(userId, { since: null }).filter((b) =>
+          tombstoneIdsTouched.has(b.id)
+        );
+      } else {
+        const tombs = this.findChangedPage(userId, {
+          sinceSeq,
+          sinceTime: !useSeqWindow && cursor.type === 'time' ? cursor.value : null,
+          pageToken: tombstonePageToken,
+          pageSize: limit,
+          deleted: true,
+        });
+        tombstones = tombs.bookmarks;
+        nextTombstoneToken = tombs.nextPageToken;
+      }
+    } else if (useSeqWindow) {
+      activeBookmarks = this.findSince(userId, { sinceSeq, deleted: false });
+      tombstones = this.findDeleted(userId, { sinceSeq });
+    } else if (cursor.type === 'none') {
+      // No cursor: do not ship the entire tombstone history. Touched deletes only.
+      activeBookmarks = this.findAll(userId, { includeDeleted: false });
       const allDeleted = this.findDeleted(userId, { since: null });
       tombstones = allDeleted.filter((b) => tombstoneIdsTouched.has(b.id));
-    } else if (tombstoneIdsTouched.size > 0) {
-      const byId = new Map(tombstones.map((b) => [b.id, b]));
-      for (const id of tombstoneIdsTouched) {
-        if (!byId.has(id)) {
-          const row = this.findById(userId, id, { includeDeleted: true });
-          if (row?.deletedAt) {
-            byId.set(id, row);
+    } else {
+      activeBookmarks = this.findAll(userId, { includeDeleted: false });
+      tombstones = this.findDeleted(userId, {
+        since: cursor.type === 'time' ? cursor.value : null,
+      });
+      if (tombstoneIdsTouched.size > 0) {
+        const byId = new Map(tombstones.map((b) => [b.id, b]));
+        for (const id of tombstoneIdsTouched) {
+          if (!byId.has(id)) {
+            const row = this.findById(userId, id, { includeDeleted: true });
+            if (row?.deletedAt) byId.set(id, row);
           }
         }
+        tombstones = [...byId.values()];
       }
-      tombstones = [...byId.values()];
     }
 
     return {
@@ -997,8 +1319,15 @@ class Bookmark {
       merged: stats.merged,
       merges,
       conflicts,
-      bookmarks: this.findAll(userId, { includeDeleted: false }),
+      bookmarks: activeBookmarks,
       tombstones,
+      fullResync,
+      changesOnly: Boolean(changesOnly),
+      sinceSeq,
+      syncCursor: this.currentSeq(userId),
+      serverTime: ts,
+      nextBookmarkToken,
+      nextTombstoneToken,
     };
   }
 

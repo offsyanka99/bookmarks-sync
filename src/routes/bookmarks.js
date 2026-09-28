@@ -10,6 +10,7 @@ router.use(requireApiKey);
 router.get('/', bookmarkController.list);
 router.post('/', bookmarkController.create);
 router.post('/sync', bookmarkController.sync);
+router.get('/changes', bookmarkController.changes);
 router.get('/export', bookmarkController.exportAll);
 router.post('/import', bookmarkController.importAll);
 // Static paths before /:id

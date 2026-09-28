@@ -22,7 +22,12 @@ function getAppVersion() {
 const APP_VERSION = getAppVersion();
 const CONTACT_EMAIL = 'hummersoft@mailbox.org';
 
-function layout({ title, user, flash, body, sessionMaxAgeMs = 0 }) {
+function csrfInput(token) {
+  if (!token) return '';
+  return `<input type="hidden" name="_csrf" value="${escapeHtml(token)}" />`;
+}
+
+function layout({ title, user, flash, body, sessionMaxAgeMs = 0, csrfToken = '' }) {
   const flashHtml = flash
     ? `<div class="flash flash-${escapeHtml(flash.type || 'info')}" role="status">${escapeHtml(flash.message)}</div>`
     : '';
@@ -37,6 +42,7 @@ function layout({ title, user, flash, body, sessionMaxAgeMs = 0 }) {
         <div class="topnav-right">
           <span class="muted">${escapeHtml(user.displayName || user.username)}</span>
           <form method="post" action="/logout" class="inline">
+            ${csrfInput(csrfToken)}
             <button type="submit" class="btn btn-ghost">Log out</button>
           </form>
         </div>
@@ -174,4 +180,4 @@ function layout({ title, user, flash, body, sessionMaxAgeMs = 0 }) {
 </html>`;
 }
 
-module.exports = { layout, escapeHtml, APP_VERSION, CONTACT_EMAIL };
+module.exports = { layout, escapeHtml, csrfInput, APP_VERSION, CONTACT_EMAIL };

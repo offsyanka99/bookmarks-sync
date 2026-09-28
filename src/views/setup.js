@@ -1,9 +1,9 @@
-const { layout, escapeHtml } = require('./layout');
+const { layout, escapeHtml, csrfInput } = require('./layout');
 
 /**
  * First-run admin password form (no admin exists yet).
  */
-function setupPage({ error = null, username = 'admin' } = {}) {
+function setupPage({ error = null, username = 'admin', csrfToken = '' } = {}) {
   const flash = error ? { type: 'error', message: error } : null;
 
   const body = `
@@ -13,9 +13,17 @@ function setupPage({ error = null, username = 'admin' } = {}) {
         <p class="muted">
           First-time setup. Choose a password for the built-in
           <strong class="mono">${escapeHtml(username)}</strong> account.
-          An API key is generated after you continue.
+          An API key is generated after you continue and shown once.
+        </p>
+        <p class="muted">
+          Enter the setup token printed in the server log when this process started.
         </p>
         <form method="post" action="/setup" class="stack">
+          ${csrfInput(csrfToken)}
+          <label>
+            Setup token
+            <input type="text" name="setupToken" required autocomplete="off" spellcheck="false" />
+          </label>
           <label>
             Username
             <input type="text" name="username" value="${escapeHtml(username)}" readonly autocomplete="username" />
@@ -36,7 +44,7 @@ function setupPage({ error = null, username = 'admin' } = {}) {
       </div>
     </div>`;
 
-  return layout({ title: 'Setup', user: null, flash, body });
+  return layout({ title: 'Setup', user: null, flash, body, csrfToken });
 }
 
 /**
@@ -49,7 +57,7 @@ function setupCompletePage({ username, apiKey }) {
         <h1>Admin ready</h1>
         <p class="muted">
           Account <strong class="mono">${escapeHtml(username)}</strong> was created.
-          Copy the API key now — you can also view and regenerate keys later in the admin portal.
+          Copy the API key now. It is shown only this once. The admin page keeps a short prefix; regenerate the key if you lose it.
         </p>
         <div class="stack">
           <label>

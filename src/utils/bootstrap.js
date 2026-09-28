@@ -48,7 +48,7 @@ function bootstrapAdmin() {
 
       console.log(`[bootstrap] Created admin user "${admin.username}" from ADMIN_PASSWORD env`);
       console.log(`[bootstrap] Admin API key: ${admin.apiKey}`);
-      console.log('[bootstrap] Store the API key securely; it is also visible in the admin UI.');
+      console.log('[bootstrap] Store the API key now. The admin UI keeps only a short prefix.');
     }
   } else if (reset) {
     if (password == null || password.length < 1) {
@@ -86,6 +86,39 @@ function bootstrapAdmin() {
     if (orphaned > 0) {
       db.prepare(`UPDATE bookmarks SET user_id = ? WHERE user_id IS NULL`).run(admin.id);
       console.log(`[bootstrap] Assigned ${orphaned} orphan bookmark(s) to admin`);
+    }
+
+    const parked = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bookmarks_orphans'`)
+      .get();
+    if (parked) {
+      const rows = db.prepare('SELECT * FROM bookmarks_orphans').all();
+      if (rows.length > 0) {
+        const insert = db.prepare(
+          `INSERT OR IGNORE INTO bookmarks
+            (user_id, id, title, url, folder, parent_id, tags, notes, favicon, position,
+             created_at, updated_at, deleted_at, seq)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 0)`
+        );
+        for (const row of rows) {
+          insert.run(
+            admin.id,
+            row.id,
+            row.title ?? '',
+            row.url ?? '',
+            row.folder ?? '',
+            row.tags ?? '[]',
+            row.notes ?? '',
+            row.favicon ?? null,
+            Number(row.position) || 0,
+            row.created_at,
+            row.updated_at,
+            row.deleted_at ?? null
+          );
+        }
+        console.log(`[bootstrap] Restored ${rows.length} orphan bookmark(s) to admin`);
+      }
+      db.exec('DROP TABLE bookmarks_orphans');
     }
   }
 }

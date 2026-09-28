@@ -8,7 +8,7 @@
 |---|---|
 | **Store item ID** | `ndiehbfpikbmhdgffcfohoeojlmfbpal` |
 | **Status** | Live (Google-signed) |
-| **Current package version** | **1.1.3** |
+| **Current package version** | **1.2.0** |
 
 Chrome does **not** use a local “sign this XPI” flow like Firefox.  
 You upload a **ZIP** to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole); Google hosts and signs the published item.
@@ -17,7 +17,20 @@ This document is for **maintainers** updating the live listing. End users should
 
 ---
 
-## Submit update 1.1.3 (checklist)
+## Submit update 1.2.0 (checklist)
+
+### Package ready to upload
+
+| Item | Path |
+|---|---|
+| **ZIP (upload this)** | [`dist/bookmarks-sync-chrome-1.2.0.zip`](../dist/bookmarks-sync-chrome-1.2.0.zip) |
+| Stable name (same bytes) | `dist/bookmarks-sync-chrome.zip` |
+| Manifest version | `1.2.0` |
+| Server | Bookmarks Sync **1.3.0** (older servers still accept the extension; cursor and `parentId` need 1.3.0) |
+
+What’s new: change-only merge, sync-state reset when the server or account changes, Chrome **Bookmarks Menu** mirror folder, folder `parentId`, server change cursor.
+
+### Submit update 1.1.3 (checklist)
 
 ### Package ready to upload
 

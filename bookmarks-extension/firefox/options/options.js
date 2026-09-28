@@ -1,4 +1,5 @@
-import { getSettings, saveSettings, saveMeta } from '../lib/storage.js';
+import { getSettings, saveSettings, saveMeta, clearSyncState } from '../lib/storage.js';
+import { reconcileAccount } from '../lib/sync.js';
 import {
   requestHostPermission,
   apiOriginPattern,
@@ -105,6 +106,7 @@ async function runConnectionTestInPage(apiBaseUrl, apiKey) {
   let authLine = 'Auth: skipped (no API key)';
   if (apiKey) {
     const list = await listBookmarks({ apiBaseUrl, apiKey });
+    await reconcileAccount({ apiBaseUrl, apiKey });
     const count = list?.count ?? list?.bookmarks?.length ?? 0;
     authLine = `Auth: ok · ${count} bookmarks on server`;
   }
@@ -183,7 +185,8 @@ form.addEventListener('submit', async (e) => {
     if (!Number.isFinite(failsafePct) || failsafePct < 1) failsafePct = 50;
     if (failsafePct > 100) failsafePct = 100;
 
-    await saveSettings({
+    const previous = await getSettings();
+    const saved = await saveSettings({
       apiBaseUrl,
       apiKey,
       syncOnChange: form.syncOnChange.checked,
@@ -197,6 +200,9 @@ form.addEventListener('submit', async (e) => {
       destructiveFailsafe: form.destructiveFailsafe.checked,
       destructiveFailsafePercent: failsafePct,
     });
+    if (previous.apiBaseUrl !== saved.apiBaseUrl) {
+      await clearSyncState();
+    }
 
     await chrome.runtime.sendMessage({ type: 'SETTINGS_SAVED' });
     showMsg('Settings saved. Host permission granted for the API origin.', 'ok');
@@ -228,7 +234,11 @@ btnTest.addEventListener('click', async () => {
     // First await must be permissions.request (Firefox)
     await grantHostFromUserGesture(apiBaseUrl);
 
-    await saveSettings({ apiBaseUrl, apiKey });
+    const previous = await getSettings();
+    const saved = await saveSettings({ apiBaseUrl, apiKey });
+    if (previous.apiBaseUrl !== saved.apiBaseUrl) {
+      await clearSyncState();
+    }
 
     // Probe from this page first (where the permission was just granted)
     const report = await runConnectionTestInPage(apiBaseUrl, apiKey);

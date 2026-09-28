@@ -38,4 +38,5 @@ export {
   snapshotFromServerBookmarks,
   applyServerBookmarks,
   removeLocalByServerIds,
+  removeLocalIds,
 } from './treeApply.js';

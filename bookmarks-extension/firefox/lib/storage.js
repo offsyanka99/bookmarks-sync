@@ -174,4 +174,41 @@ export async function saveSyncSnapshot(snapshot) {
   return snapshot;
 }
 
+/**
+ * Drop id map, snapshot, and cursors. Used when the server URL or account changes.
+ * Keeps settings and the last error so the options page can still explain itself.
+ */
+export async function clearSyncState() {
+  const meta = await getMeta();
+  const nextMeta = {
+    ...meta,
+    lastSyncAt: null,
+    syncCursor: null,
+    accountUserId: null,
+    accountServer: null,
+  };
+  await chrome.storage.local.set({
+    idMap: { localToServer: {}, serverToLocal: {} },
+    syncSnapshot: {},
+    meta: nextMeta,
+  });
+  return nextMeta;
+}
+
+/** Write the three sync records together so a killed worker cannot split them. */
+export async function saveSyncRecords({ idMap, syncSnapshot, meta }) {
+  const currentMeta = await getMeta();
+  const nextMeta = meta ? { ...currentMeta, ...meta } : currentMeta;
+  const payload = { meta: nextMeta };
+  if (idMap) {
+    payload.idMap = {
+      localToServer: idMap.localToServer || {},
+      serverToLocal: idMap.serverToLocal || {},
+    };
+  }
+  if (syncSnapshot) payload.syncSnapshot = syncSnapshot;
+  await chrome.storage.local.set(payload);
+  return nextMeta;
+}
+
 export { DEFAULT_SETTINGS, STRATEGIES };

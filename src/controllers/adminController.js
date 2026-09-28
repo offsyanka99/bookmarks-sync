@@ -5,6 +5,14 @@ const { setupPage, setupCompletePage } = require('../views/setup');
 const { usersPage } = require('../views/users');
 const { needsSetup } = require('../utils/bootstrap');
 const { resetDatabase } = require('../utils/db');
+const { ensureCsrfToken } = require('../middleware/csrf');
+const {
+  ensureSetupToken,
+  verifySetupToken,
+  setupAddressAllowed,
+  clearSetupToken,
+  rotateSetupToken,
+} = require('../utils/setupToken');
 const {
   getAdminPasswordError,
   resolveBootstrapAdminUsername,
@@ -52,7 +60,19 @@ const adminController = {
       return res.redirect('/login');
     }
     const username = resolveBootstrapAdminUsername();
-    res.type('html').send(setupPage({ username }));
+    const csrfToken = ensureCsrfToken(req);
+    if (!setupAddressAllowed(req.ip)) {
+      return res.status(403).type('html').send(
+        setupPage({
+          error:
+            'Setup is only available from a private or loopback address. Set SETUP_ALLOW_PUBLIC=true to allow other clients.',
+          username,
+          csrfToken,
+        })
+      );
+    }
+    ensureSetupToken();
+    res.type('html').send(setupPage({ username, csrfToken }));
   },
 
   completeSetup(req, res) {
@@ -63,6 +83,18 @@ const adminController = {
     const username = resolveBootstrapAdminUsername();
     const password = String(req.body.password || '');
     const passwordConfirm = String(req.body.passwordConfirm || '');
+    const csrfToken = ensureCsrfToken(req);
+
+    if (!setupAddressAllowed(req.ip)) {
+      return res.status(403).type('html').send(
+        setupPage({
+          error:
+            'Setup is only available from a private or loopback address. Set SETUP_ALLOW_PUBLIC=true to allow other clients.',
+          username,
+          csrfToken,
+        })
+      );
+    }
 
     const limited = setupRateLimiter.checkBlocked(req);
     if (limited.blocked) {
@@ -72,6 +104,18 @@ const adminController = {
         setupPage({
           error: 'Too many setup attempts. Please wait and try again.',
           username,
+          csrfToken,
+        })
+      );
+    }
+
+    if (!verifySetupToken(req.body.setupToken)) {
+      setupRateLimiter.recordFailure(req);
+      return res.status(403).type('html').send(
+        setupPage({
+          error: 'Setup token does not match the token printed in the server log.',
+          username,
+          csrfToken,
         })
       );
     }
@@ -79,7 +123,7 @@ const adminController = {
     if (password !== passwordConfirm) {
       setupRateLimiter.recordFailure(req);
       return res.status(400).type('html').send(
-        setupPage({ error: 'Passwords do not match', username })
+        setupPage({ error: 'Passwords do not match', username, csrfToken })
       );
     }
 
@@ -87,7 +131,7 @@ const adminController = {
     if (passwordError) {
       setupRateLimiter.recordFailure(req);
       return res.status(400).type('html').send(
-        setupPage({ error: passwordError, username })
+        setupPage({ error: passwordError, username, csrfToken })
       );
     }
 
@@ -104,6 +148,7 @@ const adminController = {
         isAdmin: true,
       });
       setupRateLimiter.reset(req);
+      clearSetupToken();
       logger.info('First-run admin setup completed', {
         username: admin.username,
         ip: req.ip,
@@ -130,7 +175,7 @@ const adminController = {
         return res.redirect('/login');
       }
       return res.status(400).type('html').send(
-        setupPage({ error: message, username })
+        setupPage({ error: message, username, csrfToken })
       );
     }
   },
@@ -149,6 +194,7 @@ const adminController = {
     res.type('html').send(
       loginPage({
         error: expired ? 'Your session expired. Please sign in again.' : null,
+        csrfToken: ensureCsrfToken(req),
       })
     );
   },
@@ -168,29 +214,29 @@ const adminController = {
 
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
-
-    const limited = loginRateLimiter.checkBlocked(req);
-    if (limited.blocked) {
-      res.set('Retry-After', String(limited.retryAfter));
-      logger.warn('Admin login rate-limited', { username, ip: req.ip });
-      return res.status(429).type('html').send(
-        loginPage({
-          error: 'Too many login attempts. Please wait and try again.',
-          username,
-        })
-      );
-    }
+    const csrfToken = ensureCsrfToken(req);
 
     const user = User.authenticate(username, password);
-    if (!user) {
+    if (!user || !user.isAdmin) {
+      const limited = loginRateLimiter.checkBlocked(req);
+      if (limited.blocked) {
+        res.set('Retry-After', String(limited.retryAfter));
+        logger.warn('Admin login rate-limited', { username, ip: req.ip });
+        return res.status(429).type('html').send(
+          loginPage({
+            error: 'Too many login attempts. Please wait and try again.',
+            username,
+            csrfToken,
+          })
+        );
+      }
       loginRateLimiter.recordFailure(req);
-      logger.warn('Admin login failed', { username, ip: req.ip });
-      return res.status(401).type('html').send(
-        loginPage({ error: 'Invalid username or password', username })
-      );
-    }
-    if (!user.isAdmin) {
-      loginRateLimiter.recordFailure(req);
+      if (!user) {
+        logger.warn('Admin login failed', { username, ip: req.ip });
+        return res.status(401).type('html').send(
+          loginPage({ error: 'Invalid username or password', username, csrfToken })
+        );
+      }
       logger.warn('Non-admin login rejected for admin UI', {
         username: user.username,
         ip: req.ip,
@@ -199,6 +245,7 @@ const adminController = {
         loginPage({
           error: 'Only admin users can access this UI (v1).',
           username,
+          csrfToken,
         })
       );
     }
@@ -213,9 +260,14 @@ const adminController = {
         return res
           .status(500)
           .type('html')
-          .send(loginPage({ error: 'Login failed (session error). Try again.', username }));
+          .send(loginPage({
+            error: 'Login failed (session error). Try again.',
+            username,
+            csrfToken: ensureCsrfToken(req),
+          }));
       }
 
+      req.session.csrfToken = ensureCsrfToken(req);
       req.session.user = user;
       loginRateLimiter.reset(req);
       logger.info('Admin login success', { username: user.username, ip: req.ip });
@@ -228,7 +280,11 @@ const adminController = {
           return res
             .status(500)
             .type('html')
-            .send(loginPage({ error: 'Login failed (session error). Try again.', username }));
+            .send(loginPage({
+              error: 'Login failed (session error). Try again.',
+              username,
+              csrfToken: ensureCsrfToken(req),
+            }));
         }
         res.redirect('/');
       });
@@ -269,6 +325,7 @@ const adminController = {
           logConfig: getLogConfig(),
           timeFormat: resolveTimeFormat(),
           sessionMaxAgeMs: resolveSessionMaxAgeMs(),
+          csrfToken: ensureCsrfToken(req),
         })
       );
   },
@@ -600,7 +657,7 @@ const adminController = {
    * POST /settings/reset
    * Requires body.confirm_reset === '1' (checkbox in the confirm dialog).
    */
-  resetToDefault(req, res) {
+  async resetToDefault(req, res) {
     const confirmed =
       req.body.confirm_reset === '1' ||
       req.body.confirm_reset === 'on' ||
@@ -618,14 +675,19 @@ const adminController = {
     const by = req.user?.username;
     try {
       logger.warn('Factory reset requested — wiping database', { by, ip: req.ip });
-      resetDatabase();
+      const backupPath = await resetDatabase();
+      rotateSetupToken();
       // Log level was stored in DB meta; fall back to env/default after wipe
       try {
         loadLevelFromDb(Bookmark.getMeta.bind(Bookmark));
       } catch {
         // ignore — logger keeps previous in-memory level if meta is empty
       }
-      logger.warn('Factory reset completed — database wiped', { by, ip: req.ip });
+      logger.warn('Factory reset completed — database wiped', {
+        by,
+        ip: req.ip,
+        backup: backupPath,
+      });
     } catch (err) {
       logger.error('Factory reset failed', {
         err: err.message,

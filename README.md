@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.2.4`
+**Version:** `1.3.0`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -10,7 +10,7 @@ Self-hosted multi-user bookmark sync API for browsers and scripts, plus a compan
 
 | Who | How they authenticate | What they get |
 |---|---|---|
-| **Admin** | Username + password (web UI) | Create/manage users, view/copy API keys |
+| **Admin** | Username + password (web UI) | Create/manage users; the full API key is shown once, then only a prefix |
 | **Users** | Per-user **API key** (REST API / browser extension) | Only their own bookmarks |
 
 There is **no shared global API key**. Each user has a unique key; all bookmark operations are filtered by `user_id`. Regular users do **not** need a password—only admins use the portal login.
@@ -31,7 +31,17 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
 
-### What’s new in 1.2.4
+### What’s new in 1.3.0
+
+- **Sync:** delete-and-re-add of the same URL no longer removes the bookmark everywhere; replace no longer deletes a row last-write-wins kept
+- **Database:** bookmark ids are unique per user `(user_id, id)`, so importing one user into another no longer fails with a primary-key error
+- **Change cursor:** server `syncCursor` (monotonic per user) drives the change feed and the safe-delete window; client timestamps are stored as canonical UTC. `GET /api/bookmarks` and `POST /api/bookmarks/sync` return `serverTime` and `syncCursor`
+- **Extension 1.2.0:** sends only changes and tombstones; resets sync state when the server URL or account changes; Chrome keeps Firefox Bookmarks Menu items in a **Bookmarks Menu** folder under Other Bookmarks; folders use `parentId`
+- **Admin:** CSRF token plus Origin check on form posts; first-run `/setup` requires the one-time token printed in the server log (private/loopback clients unless `SETUP_ALLOW_PUBLIC=true`); factory reset writes `bookmarks.db.bak-before-reset-<timestamp>` first
+- **API keys:** stored as SHA-256. Existing keys still authenticate. The admin page shows a prefix; the full key is shown once, when the user is created or the key is regenerated
+- **Scale:** tombstones older than `TOMBSTONE_RETENTION_DAYS` (default 30) are purged; a client behind that horizon is told to full-resync. `MAX_SYNC_SIZE_BYTES` accepts values like `5mb`
+
+### 1.2.4
 
 - **Admin-only passwords:** create regular users without a password; the password field (create + set password) appears only for **Admin** accounts
 - **Session timeout UX:** when the admin session expires, the portal clears the page and returns to login (no leftover API keys on screen); lightweight `GET /session` probe
@@ -160,9 +170,9 @@ bookmarks-sync/
 - **Admin portal** on a **separate port** from the API
 - **First-run setup** in the admin UI (default username `admin`); no password required in env/YAML
 - **Username + password** for admin web login after setup (regular users use API keys only—no password)
-- **Per-user API keys** for `/api/bookmarks` (extension / scripts), with **copy** in the admin UI
+- **Per-user API keys** for `/api/bookmarks` (extension / scripts). The full key is shown once; the portal keeps a short prefix. Keys are stored as SHA-256
 - **Confirm dialogs** for destructive admin actions (delete user, clear bookmarks, new API key)
-- **Factory reset** from the admin UI (danger zone → `/setup`)
+- **Factory reset** from the admin UI (writes a DB backup, then danger zone → `/setup`)
 - Bookmarks **scoped by user** (`user_id`)
 - SQLite (WAL mode), soft deletes, import/export, full sync
 - Optional env bootstrap / password reset via `ADMIN_PASSWORD` + `RESET_ADMIN_PASSWORD`
@@ -172,8 +182,7 @@ bookmarks-sync/
 **Not yet**
 
 - End-user web UI for managing bookmarks in the browser
-- Signed Firefox AMO release (temporary / self-install works today)
-- CSRF tokens on admin forms / hashed API keys (planned hardening)
+- Signed Firefox AMO package for extension **1.2.0** (1.1.3 remains the last Mozilla-signed XPI in `dist/` until it is re-signed)
 
 ---
 
@@ -212,8 +221,8 @@ Uses Node’s built-in test runner (`node:test`) and [supertest](https://github.
 
 1. Start the server with an empty database (no admin user yet).
 2. Open the **admin UI** — you are redirected to **`/setup`**.
-3. Set a password for the built-in username **`admin`** (min 8 characters; not a known default).
-4. Copy the **API key** shown once on the success screen (also available later in the portal).
+3. Enter the **setup token** printed in the server log, then set a password for the built-in username **`admin`** (min 8 characters; not a known default). Setup is accepted from private and loopback addresses unless `SETUP_ALLOW_PUBLIC=true`.
+4. Copy the **API key** shown once on the success screen. It is not shown again; regenerate it from the portal if you lose it.
 5. **Log in** at `/login` with `admin` + your password.
 
 No admin password needs to live in `.env` or Docker/TrueNAS YAML.
@@ -226,7 +235,7 @@ No admin password needs to live in `.env` or Docker/TrueNAS YAML.
 
 1. Log in to the admin portal (admin only in v1).
 2. Create a user (username, optional display name). No password is required for regular users—only check **Admin** (and set a password) when creating another portal admin. Or use the admin’s own API key for the extension.
-3. **Copy** that user’s **API key** (copy icon next to the key).
+3. Copy the **API key** from the green notice. The users table keeps only a prefix after that.
 4. Use the key with:
    - the **browser extension** (Options → API key), or  
    - any HTTP client against the **API port** (not the admin port).
@@ -253,7 +262,9 @@ See [Browser extension](#browser-extension-chrome--brave--firefox) for install s
 | `TIME_FORMAT` | `24h` | UI clock for **admin portal** timestamps and **browser extensions** (`Last sync`, etc.). `24h` or `12h` (also accepts `24` / `12` / `h23` / `h12` / `ampm`). Exposed on public `GET /info` as `timeFormat`. Restart to apply. |
 | `COOKIE_SECURE` | `false` | Set `true` when admin UI is served over HTTPS. Also enables HSTS + CSP `upgrade-insecure-requests`. Leave **`false` on plain HTTP LAN** (e.g. TrueNAS) or CSS/icons will not load. |
 | `CORS_ORIGINS` | empty | API CORS: empty = off; `*` = any origin; or comma-separated allowlist |
-| `TRUST_PROXY` | `false` | Set when behind a reverse proxy so `req.ip` / rate limits are correct |
+| `TRUST_PROXY` | `false` | Set when behind a reverse proxy so `req.ip` / rate limits see the client. If `X-Forwarded-For` arrives while this is off, the server logs a warning |
+| `SETUP_ALLOW_PUBLIC` | unset | Set `true` to allow `/setup` from a public address. Default: private and loopback only. The setup token from the log is still required |
+| `TOMBSTONE_RETENTION_DAYS` | `30` | Soft-deleted bookmarks older than this are purged. Clients whose sync cursor is older are told to full-resync |
 | `LOGIN_RATE_MAX` | `20` | Max admin login attempts per IP per window |
 | `LOGIN_RATE_WINDOW_MS` | `900000` | Login rate-limit window (15 minutes) |
 | `API_KEY_RATE_MAX` | `60` | Max **failed** API-key attempts per IP per window |
@@ -644,14 +655,14 @@ curl -s "$BASE/api/bookmarks/export" \
 Version tags are published to GitHub Container Registry on each `v*` release ([workflow](./.github/workflows/docker-publish.yml)):
 
 ```text
-ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+ghcr.io/offsyanka99/bookmarks-sync:1.3.0
 ghcr.io/offsyanka99/bookmarks-sync:latest
 ```
 
 Package page: [ghcr.io/offsyanka99/bookmarks-sync](https://github.com/offsyanka99/bookmarks-sync/pkgs/container/bookmarks-sync)
 
 ```bash
-docker pull ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+docker pull ghcr.io/offsyanka99/bookmarks-sync:1.3.0
 
 docker run -d \
   --name bookmarks-sync \
@@ -662,7 +673,7 @@ docker run -d \
   -e DB_PATH=/app/data/bookmarks.db \
   -e NODE_ENV=production \
   -v bookmarks-sync-data:/app/data \
-  ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+  ghcr.io/offsyanka99/bookmarks-sync:1.3.0
 ```
 
 If the package is private, `docker login ghcr.io` with a GitHub PAT that has `read:packages`. Public packages pull without login.
@@ -693,7 +704,7 @@ Optional: pass `-e ADMIN_PASSWORD=...` and/or `-e SESSION_SECRET=...` for headle
 # Build from local Dockerfile (default in docker-compose.yml)
 docker compose up -d --build
 
-# Or pull from GHCR: set image: ghcr.io/offsyanka99/bookmarks-sync:1.2.4
+# Or pull from GHCR: set image: ghcr.io/offsyanka99/bookmarks-sync:1.3.0
 # and comment out build: in docker-compose.yml, then:
 # docker compose up -d
 ```
@@ -703,7 +714,7 @@ Optional env: `ADMIN_PASSWORD`, `SESSION_SECRET`, `SESSION_MAX_AGE_MINUTES` (see
 
 ### TrueNAS SCALE (custom app YAML)
 
-Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**). Defaults to the **GHCR image** `ghcr.io/offsyanka99/bookmarks-sync:1.2.4`:
+Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**). Defaults to the **GHCR image** `ghcr.io/offsyanka99/bookmarks-sync:1.3.0`:
 
 **[`docs/truenas-scale.compose.yaml`](./docs/truenas-scale.compose.yaml)**
 

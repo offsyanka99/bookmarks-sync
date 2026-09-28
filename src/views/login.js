@@ -1,6 +1,6 @@
-const { layout, escapeHtml } = require('./layout');
+const { layout, escapeHtml, csrfInput } = require('./layout');
 
-function loginPage({ error, username = 'admin' } = {}) {
+function loginPage({ error, username = 'admin', csrfToken = '' } = {}) {
   const flash = error ? { type: 'error', message: error } : null;
 
   const body = `
@@ -9,6 +9,7 @@ function loginPage({ error, username = 'admin' } = {}) {
         <h1>Admin login</h1>
         <p class="muted">Sign in with your admin username and password.</p>
         <form method="post" action="/login" class="stack">
+          ${csrfInput(csrfToken)}
           <label>
             Username
             <input type="text" name="username" autocomplete="username" required value="${escapeHtml(username)}" />
@@ -22,7 +23,7 @@ function loginPage({ error, username = 'admin' } = {}) {
       </div>
     </div>`;
 
-  return layout({ title: 'Login', user: null, flash, body });
+  return layout({ title: 'Login', user: null, flash, body, csrfToken });
 }
 
 module.exports = { loginPage };
