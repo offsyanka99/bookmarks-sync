@@ -65,16 +65,18 @@ Pre-generated at required sizes under [`docs/chrome-store/`](../docs/chrome-stor
 ### Dashboard steps (update)
 
 1. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → item **`ndiehbfpikbmhdgffcfohoeojlmfbpal`**.
-2. **Package** → **Upload new package** → select `dist/bookmarks-sync-chrome-1.1.3.zip`.
+2. **Package** → **Upload new package** → select `dist/bookmarks-sync-chrome-1.2.0.zip`.
 3. **Store listing** → upload/replace screenshots + promo tiles if desired (optional for this release).
-4. **Privacy** → confirm practices still match §4 (no change required for 1.1.3).
+4. **Privacy** → confirm practices still match §4 (no change required for 1.2.0).
 5. **What's new** (this version) — paste:
 
 ```text
-• Multi-browser delete fix: tombstones and sticky soft-deletes so deletes propagate
-• Toolbar fix: Brave “Bookmarks bar” and Firefox “Bookmarks Toolbar” map to the same toolbar root
-• Safer sync apply: avoid nested root folders and unnecessary reordering on Firefox
+• Merge sends only changes and tombstones; the server assigns the sync cursor
+• Switching server URL or account clears local sync state (same account keeps it)
+• Chrome keeps Firefox Bookmarks Menu items in a "Bookmarks Menu" folder
+• Folders are identified by parent id, so a slash in a title stays one folder
 • Same privacy model: data only goes to the API URL you configure
+• Use with Bookmarks Sync server 1.3.0
 ```
 
 6. Review permissions justifications (unchanged — see table below).
@@ -89,7 +91,7 @@ Keep the same store item ID so user settings survive the update.
 2. Options → API URL + key → **Save** → allow host access.
 3. **Test connection** — should list `Time format: 24h` or `12h` when server is 1.2.2+.
 4. Two browsers on **Merge**: add → sync both; delete on one → sync both — delete should stick.
-5. Confirm popup footer shows **v1.1.3**.
+5. Confirm popup footer shows **v1.2.0**.
 
 Do **not** load the Firefox folder into Chrome.
 

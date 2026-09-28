@@ -54,6 +54,9 @@ const morganFormat =
 function createHelmet() {
   const httpsOnly = process.env.COOKIE_SECURE === 'true';
   return helmet({
+    // same-origin so a login POST can send Referer. no-referrer strips it,
+    // and some browsers also omit Origin on a same-site form post.
+    referrerPolicy: { policy: 'same-origin' },
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {

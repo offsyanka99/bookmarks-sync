@@ -177,10 +177,12 @@ Privacy policy URL:
   https://github.com/offsyanka99/bookmarks-sync/blob/main/docs/PRIVACY.md
 
 What's new (paste):
-• Multi-browser delete fix: tombstones + sticky soft-deletes
-• Toolbar mapping fix: Brave "Bookmarks bar" and Firefox "Bookmarks Toolbar" share toolbar:
-• Safer apply: no nested root folders; less order thrashing on Firefox
+• Merge sends only changes and tombstones; the server assigns the sync cursor
+• Switching server URL or account clears local sync state (same account keeps it)
+• Chrome keeps Firefox Bookmarks Menu items in a "Bookmarks Menu" folder
+• Folders are identified by parent id, so titles that contain / stay one folder
 • Optional host access only — data only goes to the API URL you configure
+• Use with Bookmarks Sync server 1.3.0
 
 Single purpose:
   Sync the user’s browser bookmarks with their self-hosted Bookmarks Sync server.

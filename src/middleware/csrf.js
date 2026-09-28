@@ -17,16 +17,39 @@ function tokensMatch(provided, expected) {
   return crypto.timingSafeEqual(left, right);
 }
 
-function originMatchesHost(req) {
-  const host = req.get('host');
-  if (!host) return false;
-  const candidate = req.get('origin') || req.get('referer');
-  if (!candidate) return false;
-  try {
-    return new URL(candidate).host === host;
-  } catch {
-    return false;
+function hostsForRequest(req) {
+  const hosts = new Set();
+  const raw = req.get('host');
+  if (raw) hosts.add(raw);
+  const trust = req.app.get('trust proxy');
+  if (trust) {
+    const forwarded = req.get('x-forwarded-host');
+    if (forwarded) hosts.add(forwarded.split(',')[0].trim());
   }
+  return hosts;
+}
+
+/**
+ * A posted form must belong to this admin site.
+ * Origin or Referer, when the browser sends one, has to match Host or
+ * X-Forwarded-Host. Browsers that omit both still have to pass the session
+ * token; a cross-site post (Sec-Fetch-Site: cross-site) is rejected.
+ * Referer is often absent because the admin response asks browsers not to send it.
+ */
+function originAllowed(req) {
+  const allowed = hostsForRequest(req);
+  if (allowed.size === 0) return false;
+  const candidate = req.get('origin') || req.get('referer');
+  if (candidate && candidate !== 'null') {
+    try {
+      return allowed.has(new URL(candidate).host);
+    } catch {
+      return false;
+    }
+  }
+  const site = String(req.get('sec-fetch-site') || '').toLowerCase();
+  if (site === 'cross-site') return false;
+  return true;
 }
 
 /**
@@ -40,7 +63,7 @@ function csrfMiddleware(req, res, next) {
     return next();
   }
   const provided = req.body?._csrf || req.get('x-csrf-token');
-  if (!originMatchesHost(req) || !tokensMatch(provided, token)) {
+  if (!originAllowed(req) || !tokensMatch(provided, token)) {
     logger.warn('Rejected admin request (CSRF)', {
       path: req.path,
       method: req.method,
