@@ -22,6 +22,20 @@ function usersPage({
   csrfToken = '',
 }) {
   const csrf = csrfInput(csrfToken);
+
+  function menuForm({ action, confirm, username, count, label, title, disabled, danger }) {
+    const confirmAttrs = confirm
+      ? ` class="action-menu-form form-confirm-action" data-confirm="${escapeHtml(confirm)}" data-username="${escapeHtml(username)}" data-count="${escapeHtml(String(count ?? 0))}"`
+      : ' class="action-menu-form"';
+    const itemClass = danger ? 'action-menu-item action-menu-item-danger' : 'action-menu-item';
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+    const disabledAttr = disabled ? ' disabled' : '';
+    return `<form method="post" action="${escapeHtml(action)}"${confirmAttrs}>
+              ${csrf}
+              <button type="submit" class="${itemClass}" role="menuitem"${titleAttr}${disabledAttr}>${escapeHtml(label)}</button>
+            </form>`;
+  }
+
   const rows = users
     .map((u) => {
       const badge = u.isAdmin
@@ -59,27 +73,58 @@ function usersPage({
           <td class="muted small">${formatDate(u.createdAt)}</td>
           <td class="actions-cell">
             <div class="actions">
-            <a class="btn btn-small" href="/users/${escapeHtml(u.id)}/export" title="Download ZIP of this user’s bookmarks">Export ZIP</a>
-            <form method="post" action="/users/${escapeHtml(u.id)}/dedupe-bookmarks" class="inline form-confirm-action"
-              data-confirm="dedupe-bookmarks"
-              data-username="${escapeHtml(u.username)}"
-              data-count="${dupExtra}">
-              ${csrf}
-              <button type="submit" class="btn btn-small btn-ghost" ${dupExtra === 0 ? 'disabled' : ''} title="Soft-delete same-folder URL duplicates (keep newest)">Dedupe</button>
-            </form>
-            <form method="post" action="/users/${escapeHtml(u.id)}/clear-bookmarks" class="inline form-confirm-action"
-              data-confirm="clear-bookmarks"
-              data-username="${escapeHtml(u.username)}"
-              data-count="${bmCount}">
-              ${csrf}
-              <button type="submit" class="btn btn-small btn-ghost" ${bmCount === 0 ? 'disabled' : ''}>Clear bookmarks</button>
-            </form>
-            <form method="post" action="/users/${escapeHtml(u.id)}/regenerate-key" class="inline form-confirm-action"
-              data-confirm="regenerate-key"
-              data-username="${escapeHtml(u.username)}">
-              ${csrf}
-              <button type="submit" class="btn btn-small">New API key</button>
-            </form>
+              <div class="action-menu">
+                <button type="button" class="btn btn-icon btn-action-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="user-actions-${escapeHtml(u.id)}" aria-label="Actions for ${escapeHtml(u.username)}" title="Actions">
+                  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <circle cx="8" cy="3.25" r="1.35" fill="currentColor"></circle>
+                    <circle cx="8" cy="8" r="1.35" fill="currentColor"></circle>
+                    <circle cx="8" cy="12.75" r="1.35" fill="currentColor"></circle>
+                  </svg>
+                </button>
+                <div class="action-menu-panel" id="user-actions-${escapeHtml(u.id)}" role="menu" hidden>
+                  <a class="action-menu-item" role="menuitem" href="/users/${escapeHtml(u.id)}/export" title="Download ZIP of this user’s bookmarks">Export ZIP</a>
+                  ${menuForm({
+                    action: `/users/${u.id}/dedupe-bookmarks`,
+                    confirm: 'dedupe-bookmarks',
+                    username: u.username,
+                    count: dupExtra,
+                    label: 'Dedupe',
+                    title: 'Soft-delete same-folder URL duplicates (keep newest)',
+                    disabled: dupExtra === 0,
+                  })}
+                  ${menuForm({
+                    action: `/users/${u.id}/clear-bookmarks`,
+                    confirm: 'clear-bookmarks',
+                    username: u.username,
+                    count: bmCount,
+                    label: 'Clear bookmarks',
+                    disabled: bmCount === 0,
+                  })}
+                  ${menuForm({
+                    action: `/users/${u.id}/regenerate-key`,
+                    confirm: 'regenerate-key',
+                    username: u.username,
+                    label: 'New API key',
+                  })}
+                  ${
+                    isSelf
+                      ? ''
+                      : `<div class="action-menu-sep" role="separator"></div>
+                  ${menuForm({
+                    action: `/users/${u.id}/${toggleAction}`,
+                    label: toggleLabel,
+                  })}
+                  ${menuForm({
+                    action: `/users/${u.id}/delete`,
+                    confirm: 'delete-user',
+                    username: u.username,
+                    count: bmCount,
+                    label: 'Delete',
+                    danger: true,
+                  })}`
+                  }
+                </div>
+              </div>
             ${
               u.isAdmin
                 ? `<form method="post" action="/users/${escapeHtml(u.id)}/password" class="password-form">
@@ -89,21 +134,7 @@ function usersPage({
             </form>`
                 : ''
             }
-            ${
-              isSelf
-                ? '<span class="muted small">you</span>'
-                : `<form method="post" action="/users/${escapeHtml(u.id)}/${toggleAction}" class="inline">
-                    ${csrf}
-                    <button type="submit" class="btn btn-small btn-ghost">${toggleLabel}</button>
-                  </form>
-                  <form method="post" action="/users/${escapeHtml(u.id)}/delete" class="inline form-confirm-action"
-                    data-confirm="delete-user"
-                    data-username="${escapeHtml(u.username)}"
-                    data-count="${bmCount}">
-                    ${csrf}
-                    <button type="submit" class="btn btn-small btn-danger">Delete</button>
-                  </form>`
-            }
+            ${isSelf ? '<span class="muted small">you</span>' : ''}
             </div>
           </td>
         </tr>`;
@@ -299,6 +330,130 @@ function usersPage({
             el.textContent = d.toString();
           }
         });
+
+        var openMenuBtn = null;
+        var ignoreMenuScroll = false;
+
+        function closeActionMenus() {
+          document.querySelectorAll('.action-menu-panel').forEach(function (panel) {
+            panel.hidden = true;
+          });
+          document.querySelectorAll('.btn-action-menu[aria-expanded="true"]').forEach(function (btn) {
+            btn.setAttribute('aria-expanded', 'false');
+          });
+          openMenuBtn = null;
+        }
+
+        function enabledMenuItems(panel) {
+          return Array.prototype.filter.call(panel.querySelectorAll('[role="menuitem"]'), function (el) {
+            return !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+          });
+        }
+
+        function placeActionMenu(btn, panel) {
+          panel.hidden = false;
+          var rect = btn.getBoundingClientRect();
+          var width = panel.offsetWidth;
+          var height = panel.offsetHeight;
+          var left = rect.right - width;
+          if (left < 8) left = 8;
+          if (left + width > window.innerWidth - 8) {
+            left = Math.max(8, window.innerWidth - width - 8);
+          }
+          var top = rect.bottom + 4;
+          if (top + height > window.innerHeight - 8 && rect.top > height + 8) {
+            top = rect.top - height - 4;
+          }
+          panel.style.left = Math.round(left) + 'px';
+          panel.style.top = Math.round(top) + 'px';
+        }
+
+        function openActionMenu(btn) {
+          var panel = document.getElementById(btn.getAttribute('aria-controls'));
+          if (!panel) return;
+          closeActionMenus();
+          // The users table scrolls horizontally, which would clip a menu inside the cell.
+          if (panel.parentElement !== document.body) document.body.appendChild(panel);
+          placeActionMenu(btn, panel);
+          btn.setAttribute('aria-expanded', 'true');
+          openMenuBtn = btn;
+          var items = enabledMenuItems(panel);
+          ignoreMenuScroll = true;
+          if (items.length) items[0].focus({ preventScroll: true });
+          setTimeout(function () {
+            ignoreMenuScroll = false;
+          }, 0);
+        }
+
+        document.querySelectorAll('.btn-action-menu').forEach(function (btn) {
+          btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (btn.getAttribute('aria-expanded') === 'true') closeActionMenus();
+            else openActionMenu(btn);
+          });
+          btn.addEventListener('keydown', function (e) {
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            e.preventDefault();
+            openActionMenu(btn);
+            if (e.key === 'ArrowUp') {
+              var panel = document.getElementById(btn.getAttribute('aria-controls'));
+              var items = panel ? enabledMenuItems(panel) : [];
+              if (items.length) items[items.length - 1].focus({ preventScroll: true });
+            }
+          });
+        });
+
+        document.querySelectorAll('.action-menu-panel').forEach(function (panel) {
+          panel.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var link = e.target.closest && e.target.closest('a[role="menuitem"]');
+            if (link) closeActionMenus();
+          });
+          panel.addEventListener('keydown', function (e) {
+            var items = enabledMenuItems(panel);
+            if (!items.length) return;
+            var index = items.indexOf(document.activeElement);
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              items[(index + 1) % items.length].focus({ preventScroll: true });
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              items[index <= 0 ? items.length - 1 : index - 1].focus({ preventScroll: true });
+            } else if (e.key === 'Home') {
+              e.preventDefault();
+              items[0].focus({ preventScroll: true });
+            } else if (e.key === 'End') {
+              e.preventDefault();
+              items[items.length - 1].focus({ preventScroll: true });
+            }
+          });
+        });
+
+        document.addEventListener('click', function () {
+          if (openMenuBtn) closeActionMenus();
+        });
+
+        document.addEventListener('keydown', function (e) {
+          if (!openMenuBtn) return;
+          if (e.key !== 'Escape' && e.key !== 'Tab') return;
+          if (e.key === 'Tab') e.preventDefault();
+          var btn = openMenuBtn;
+          closeActionMenus();
+          btn.focus({ preventScroll: true });
+        });
+
+        window.addEventListener('resize', function () {
+          if (openMenuBtn) closeActionMenus();
+        });
+
+        window.addEventListener(
+          'scroll',
+          function () {
+            if (ignoreMenuScroll || !openMenuBtn) return;
+            closeActionMenus();
+          },
+          true
+        );
 
         document.querySelectorAll('.btn-toggle-key').forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -538,6 +693,7 @@ function usersPage({
         document.querySelectorAll('form.form-confirm-action').forEach(function (form) {
           form.addEventListener('submit', function (e) {
             e.preventDefault();
+            closeActionMenus();
             openConfirmDialog(form);
             return false;
           });

@@ -26,7 +26,7 @@ This document is for **maintainers** updating the live listing. End users should
 | **ZIP (upload this)** | [`dist/bookmarks-sync-chrome-1.2.0.zip`](../dist/bookmarks-sync-chrome-1.2.0.zip) |
 | Stable name (same bytes) | `dist/bookmarks-sync-chrome.zip` |
 | Manifest version | `1.2.0` |
-| Server | Bookmarks Sync **1.3.0** (older servers still accept the extension; cursor and `parentId` need 1.3.0) |
+| Server | Bookmarks Sync **1.3.1** (older servers still accept the extension; cursor and `parentId` need 1.3.0) |
 
 What’s new: change-only merge, sync-state reset when the server or account changes, Chrome **Bookmarks Menu** mirror folder, folder `parentId`, server change cursor.
 
@@ -76,7 +76,7 @@ Pre-generated at required sizes under [`docs/chrome-store/`](../docs/chrome-stor
 • Chrome keeps Firefox Bookmarks Menu items in a "Bookmarks Menu" folder
 • Folders are identified by parent id, so a slash in a title stays one folder
 • Same privacy model: data only goes to the API URL you configure
-• Use with Bookmarks Sync server 1.3.0
+• Use with Bookmarks Sync server 1.3.1
 ```
 
 6. Review permissions justifications (unchanged — see table below).

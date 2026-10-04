@@ -1,6 +1,6 @@
 # Bookmarks Sync — Browser Extensions
 
-**Extension package version:** `1.2.0` (Chrome / Firefox source). Server is versioned separately (`package.json`, currently **1.3.0**).
+**Extension package version:** `1.2.0` (Chrome / Firefox source). Server is versioned separately (`package.json`, currently **1.3.1**).
 
 Manifest **V3** extensions for **Chrome**, **Brave**, and **Firefox**. Each browser has its **own folder** with a correct `manifest.json` (Chromium and Firefox disagree on `background`).
 

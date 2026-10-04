@@ -118,7 +118,7 @@ Then finish listing text / review in the [AMO developer hub](https://addons.mozi
 - Switching server URL or account clears the local id map and snapshot
 - Chrome keeps Firefox Bookmarks Menu bookmarks in a **Bookmarks Menu** folder
 - Folder identity uses `parentId` (a `/` in a title is one folder)
-- Needs Bookmarks Sync server **1.3.0** for the cursor, per-user ids, and `parentId`
+- Needs Bookmarks Sync server **1.3.0** or later (current server **1.3.1**) for the cursor, per-user ids, and `parentId`
 
 The signed file in this repo is still **1.1.3** until `npm run ext:sign-firefox` is run for 1.2.0.
 

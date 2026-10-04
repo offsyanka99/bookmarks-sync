@@ -1,12 +1,12 @@
 # Bookmarks Sync
 
-**Version:** `1.3.0`
+**Version:** `1.3.1`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
 **Stack:** Node.js **22+** + Express **5** + SQLite · **Auth:** admin session (UI) + per-user API keys (REST / extension) · **Conflicts:** optimistic locking via `updatedAt` on writes; sync merges by newest timestamp; **deletes** use tombstones + sticky soft-deletes.
 
-**Multi-user model** (inspired by [Baikal](https://github.com/sabre-io/Baikal)-style admin accounts and [xBrowserSync](https://github.com/xbrowsersync)-style sync):
+**Multi-user model** (inspired by [xBrowserSync](https://github.com/xbrowsersync)-style sync):
 
 | Who | How they authenticate | What they get |
 |---|---|---|
@@ -30,6 +30,10 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 | Options | Popup |
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
+
+### What’s new in 1.3.1
+
+- **Admin:** each user row has a **⋮** actions menu (Export ZIP, Dedupe, Clear bookmarks, New API key, and for other users Disable/Enable and Delete). Admin password fields stay beside the menu.
 
 ### What’s new in 1.3.0
 
@@ -655,14 +659,14 @@ curl -s "$BASE/api/bookmarks/export" \
 Version tags are published to GitHub Container Registry on each `v*` release ([workflow](./.github/workflows/docker-publish.yml)):
 
 ```text
-ghcr.io/offsyanka99/bookmarks-sync:1.3.0
+ghcr.io/offsyanka99/bookmarks-sync:1.3.1
 ghcr.io/offsyanka99/bookmarks-sync:latest
 ```
 
 Package page: [ghcr.io/offsyanka99/bookmarks-sync](https://github.com/offsyanka99/bookmarks-sync/pkgs/container/bookmarks-sync)
 
 ```bash
-docker pull ghcr.io/offsyanka99/bookmarks-sync:1.3.0
+docker pull ghcr.io/offsyanka99/bookmarks-sync:1.3.1
 
 docker run -d \
   --name bookmarks-sync \
@@ -673,7 +677,7 @@ docker run -d \
   -e DB_PATH=/app/data/bookmarks.db \
   -e NODE_ENV=production \
   -v bookmarks-sync-data:/app/data \
-  ghcr.io/offsyanka99/bookmarks-sync:1.3.0
+  ghcr.io/offsyanka99/bookmarks-sync:1.3.1
 ```
 
 If the package is private, `docker login ghcr.io` with a GitHub PAT that has `read:packages`. Public packages pull without login.
@@ -704,7 +708,7 @@ Optional: pass `-e ADMIN_PASSWORD=...` and/or `-e SESSION_SECRET=...` for headle
 # Build from local Dockerfile (default in docker-compose.yml)
 docker compose up -d --build
 
-# Or pull from GHCR: set image: ghcr.io/offsyanka99/bookmarks-sync:1.3.0
+# Or pull from GHCR: set image: ghcr.io/offsyanka99/bookmarks-sync:1.3.1
 # and comment out build: in docker-compose.yml, then:
 # docker compose up -d
 ```
@@ -714,7 +718,7 @@ Optional env: `ADMIN_PASSWORD`, `SESSION_SECRET`, `SESSION_MAX_AGE_MINUTES` (see
 
 ### TrueNAS SCALE (custom app YAML)
 
-Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**). Defaults to the **GHCR image** `ghcr.io/offsyanka99/bookmarks-sync:1.3.0`:
+Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**). Defaults to the **GHCR image** `ghcr.io/offsyanka99/bookmarks-sync:1.3.1`:
 
 **[`docs/truenas-scale.compose.yaml`](./docs/truenas-scale.compose.yaml)**
 

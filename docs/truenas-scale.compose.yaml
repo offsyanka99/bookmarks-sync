@@ -33,9 +33,9 @@ services:
     user: "568:568"
     # --- Image source (pick one) -------------------------------------------
     # A) Pre-built image from GitHub Container Registry (recommended)
-    #    Tags: latest | 1.3.0 | 1.3 | 1  — published on each v* release
+    #    Tags: latest | 1.3.1 | 1.3 | 1  — published on each v* release
     #    Package: https://github.com/offsyanka99/bookmarks-sync/pkgs/container/bookmarks-sync
-    image: ghcr.io/offsyanka99/bookmarks-sync:1.3.0
+    image: ghcr.io/offsyanka99/bookmarks-sync:1.3.1
     # B) Or build from source on the NAS (comment out image: above):
     # build:
     #   context: https://github.com/offsyanka99/bookmarks-sync.git#main
