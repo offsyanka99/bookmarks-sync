@@ -18,6 +18,7 @@ dist/*
 **/.amo-upload-uuid
 # Store submission notes / paste packs — keep local only, never publish
 bookmarks-extension/STORE-SUBMIT.md
+bookmarks-extension/FIREFOX-INSTALL.md
 dist/STORE-SUBMIT-*.txt
 # Local code review notes
 docs/CODE-REVIEW.md

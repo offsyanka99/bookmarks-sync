@@ -177,12 +177,11 @@ Privacy policy URL:
   https://github.com/offsyanka99/bookmarks-sync/blob/main/docs/PRIVACY.md
 
 What's new (paste):
-• Merge sends only changes and tombstones; the server assigns the sync cursor
-• Switching server URL or account clears local sync state (same account keeps it)
-• Chrome keeps Firefox Bookmarks Menu items in a "Bookmarks Menu" folder
-• Folders are identified by parent id, so titles that contain / stay one folder
-• Optional host access only — data only goes to the API URL you configure
-• Use with Bookmarks Sync server 1.3.0
+• Fixes "Index out of bounds" when a download creates a folder before the links that share its parent
+• Sibling order is applied after the tree exists, including sparse positions
+• Chrome and Firefox builds both include the fix
+• Same privacy model: data only goes to the API URL you configure
+• Use with Bookmarks Sync server 1.3.1
 
 Single purpose:
   Sync the user’s browser bookmarks with their self-hosted Bookmarks Sync server.
@@ -216,7 +215,6 @@ Privacy:
 
 Docs:
   bookmarks-extension/CHROME-STORE.md
-  bookmarks-extension/FIREFOX-INSTALL.md
 `.trimStart();
 
 fs.writeFileSync(summaryPath, summary);

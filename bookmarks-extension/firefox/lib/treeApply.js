@@ -38,62 +38,179 @@ async function maybeYield(ops, yieldEvery) {
 }
 
 /**
- * Index of node among its parent's children, or -1.
- * @param {string} parentId
- * @param {string} nodeId
+ * Chromium rejects bookmarks.create / bookmarks.move when index is greater
+ * than the parent's current child count. The message is "Index out of bounds."
+ * An index equal to the child count appends.
+ * @param {number} desiredIndex
+ * @param {number} childCount
  */
-async function siblingIndex(parentId, nodeId) {
+export function clampBookmarkIndex(desiredIndex, childCount) {
+  const count = Math.max(0, Number(childCount) || 0);
+  const idx = Number(desiredIndex);
+  const safe = Number.isFinite(idx) ? Math.max(0, Math.floor(idx)) : 0;
+  return Math.min(safe, count);
+}
+
+function isIndexError(err) {
+  return /index out of bounds/i.test(String(err?.message || err));
+}
+
+/**
+ * Largest index Chromium will accept for a create under parentId.
+ * @param {string} parentId
+ * @param {number} desiredIndex
+ */
+async function clampCreateIndex(parentId, desiredIndex) {
+  let count = 0;
   try {
     const kids = await chrome.bookmarks.getChildren(parentId);
-    return kids.findIndex((k) => String(k.id) === String(nodeId));
-  } catch {
-    return -1;
+    count = kids.length;
+  } catch (err) {
+    debugWarn('treeApply', 'child count failed', { parentId, err: String(err) });
+    return 0;
+  }
+  return clampBookmarkIndex(desiredIndex, count);
+}
+
+/**
+ * Create, and if the browser still rejects the index, append.
+ * @param {chrome.bookmarks.CreateDetails} details
+ */
+async function createBookmark(details) {
+  try {
+    return await chrome.bookmarks.create(details);
+  } catch (err) {
+    if (details.index == null || !isIndexError(err)) throw err;
+    debugWarn('treeApply', 'create index rejected, appending', {
+      parentId: details.parentId,
+      index: details.index,
+      err: String(err),
+    });
+    const { index, ...rest } = details;
+    return chrome.bookmarks.create(rest);
   }
 }
 
 /**
- * Move only when parent or index actually differs.
- * Blind re-index on every sync thrashing Firefox's Bookmarks Toolbar order.
+ * Move to another parent. Sibling order is applied later, after every child
+ * exists. Passing a stored position as `index` during create throws on
+ * Chromium: folders are created before urls, so a folder at position 2 is
+ * inserted while the parent still has fewer than 2 children. The same
+ * happens when positions have gaps.
  * @param {string} nodeId
  * @param {string} parentId
- * @param {number} desiredIndex
  * @param {{ parentId?: string }} node
  * @returns {Promise<boolean>} true if a move was performed
  */
-async function moveIfNeeded(nodeId, parentId, desiredIndex, node) {
-  const needsParent = String(node?.parentId) !== String(parentId);
-  let idx = -1;
-  if (!needsParent) {
-    idx = await siblingIndex(parentId, nodeId);
-    if (idx === desiredIndex) return false;
-  }
+async function moveToParentIfNeeded(nodeId, parentId, node) {
+  if (String(node?.parentId) === String(parentId)) return false;
   try {
-    await chrome.bookmarks.move(nodeId, {
-      parentId,
-      index: Math.max(0, desiredIndex),
-    });
+    await chrome.bookmarks.move(nodeId, { parentId });
     return true;
   } catch (err) {
-    debugWarn('treeApply', 'move with index failed', {
+    debugWarn('treeApply', 'move parent failed', {
       nodeId,
       parentId,
-      desiredIndex,
       err: String(err),
     });
-    if (needsParent) {
-      try {
-        await chrome.bookmarks.move(nodeId, { parentId });
-        return true;
-      } catch (err2) {
-        debugWarn('treeApply', 'move parent-only failed', {
-          nodeId,
-          parentId,
-          err: String(err2),
-        });
-      }
-    }
     return false;
   }
+}
+
+/**
+ * Place orderedIds at indexes 0..n-1. Nodes already in place are left alone
+ * so a sync does not reshuffle the toolbar on every run.
+ *
+ * Only moves a node toward the front (lower index). Chrome and Firefox both
+ * treat that index as the final slot. Moving toward the end differs between
+ * them, and an index past the live child count is Chromium's
+ * "Index out of bounds."
+ * @param {string} parentId
+ * @param {string[]} orderedIds
+ * @param {() => Promise<void>} [onMove]
+ * @returns {Promise<number>}
+ */
+async function orderChildren(parentId, orderedIds, onMove) {
+  let kids;
+  try {
+    kids = await chrome.bookmarks.getChildren(parentId);
+  } catch (err) {
+    debugWarn('treeApply', 'reorder getChildren failed', {
+      parentId,
+      err: String(err),
+    });
+    return 0;
+  }
+  const ids = kids.map((k) => String(k.id));
+  let moves = 0;
+
+  for (let target = 0; target < orderedIds.length; target += 1) {
+    const id = String(orderedIds[target]);
+    let current = ids.indexOf(id);
+    if (current < 0 || current === target) continue;
+
+    // Node sits left of its slot. Park it at the end (index == length is
+    // append) so the following move is toward the front.
+    if (current < target) {
+      const end = ids.length;
+      try {
+        await chrome.bookmarks.move(id, { parentId, index: end });
+      } catch (err) {
+        debugWarn('treeApply', 'reorder park failed', {
+          id,
+          parentId,
+          end,
+          err: String(err),
+        });
+        continue;
+      }
+      ids.splice(current, 1);
+      ids.push(id);
+      current = ids.length - 1;
+      moves += 1;
+      if (onMove) await onMove();
+      if (current === target) continue;
+    }
+
+    try {
+      await chrome.bookmarks.move(id, { parentId, index: target });
+    } catch (err) {
+      debugWarn('treeApply', 'reorder move failed', {
+        id,
+        parentId,
+        target,
+        err: String(err),
+      });
+      continue;
+    }
+    ids.splice(current, 1);
+    ids.splice(Math.min(target, ids.length), 0, id);
+    moves += 1;
+    if (onMove) await onMove();
+  }
+  return moves;
+}
+
+/**
+ * @param {{ localId: string, position: number, folderFirst: number, title: string, serverId: string }[]} items
+ * @returns {string[]}
+ */
+function orderedLocalIds(items) {
+  const sorted = [...items].sort((a, b) => {
+    if (a.position !== b.position) return a.position - b.position;
+    if (a.folderFirst !== b.folderFirst) return a.folderFirst - b.folderFirst;
+    const title = a.title.localeCompare(b.title);
+    if (title) return title;
+    return a.serverId.localeCompare(b.serverId);
+  });
+  const seen = new Set();
+  const ids = [];
+  for (const item of sorted) {
+    if (!item.localId || seen.has(item.localId)) continue;
+    seen.add(item.localId);
+    ids.push(item.localId);
+  }
+  return ids;
 }
 
 /**
@@ -403,6 +520,26 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
   let skipped = 0;
   let ops = 0;
 
+  /** @type {Map<string, { localId: string, position: number, folderFirst: number, title: string, serverId: string }[]>} */
+  const placements = new Map();
+
+  function notePlacement(parentId, localId, sb) {
+    const key = String(parentId);
+    if (!placements.has(key)) placements.set(key, []);
+    placements.get(key).push({
+      localId: String(localId),
+      position: Math.max(0, Number(sb.position) || 0),
+      folderFirst: isDirEntry(sb) ? 0 : 1,
+      title: String(sb.title || ''),
+      serverId: String(sb.id || ''),
+    });
+  }
+
+  async function countMove() {
+    ops += 1;
+    await maybeYield(ops, yieldEvery);
+  }
+
   let menuMirrorId = null;
 
   /** Browser root, or the Chromium "Bookmarks Menu" folder under Other Bookmarks. */
@@ -505,10 +642,11 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     }
 
     if (!node) {
-      node = await chrome.bookmarks.create({
+      const index = await clampCreateIndex(parentId, desiredIndex);
+      node = await createBookmark({
         parentId,
         title: sb.title || 'Folder',
-        index: desiredIndex,
+        index,
       });
       created += 1;
       ops += 1;
@@ -519,7 +657,7 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
         await chrome.bookmarks.update(node.id, { title: sb.title || 'Folder' });
         ops += 1;
       }
-      const moved = await moveIfNeeded(node.id, parentId, desiredIndex, node);
+      const moved = await moveToParentIfNeeded(node.id, parentId, node);
       if (moved) ops += 1;
       if (needsTitle || moved) updated += 1;
       else skipped += 1;
@@ -530,6 +668,7 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     localToServer[idStr] = sb.id;
     serverToLocal[sb.id] = idStr;
     pathToLocalId.set(selfKey, idStr);
+    notePlacement(parentId, idStr, sb);
   }
 
   // Second pass: URL bookmarks
@@ -580,11 +719,12 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     }
 
     if (!node) {
-      node = await chrome.bookmarks.create({
+      const index = await clampCreateIndex(parentId, desiredIndex);
+      node = await createBookmark({
         parentId,
         title: sb.title || sb.url,
         url: sb.url,
-        index: desiredIndex,
+        index,
       });
       created += 1;
       ops += 1;
@@ -600,7 +740,7 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
         });
         ops += 1;
       }
-      const moved = await moveIfNeeded(node.id, parentId, desiredIndex, node);
+      const moved = await moveToParentIfNeeded(node.id, parentId, node);
       if (moved) ops += 1;
       if (needsUpdate || moved) updated += 1;
       else skipped += 1;
@@ -610,6 +750,7 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     const idStr = String(node.id);
     localToServer[idStr] = sb.id;
     serverToLocal[sb.id] = idStr;
+    notePlacement(parentId, idStr, sb);
   }
 
   if (options.removeLocalMissing) {
@@ -653,6 +794,14 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
       if (serverToLocal[serverId] === localId) delete serverToLocal[serverId];
       await maybeYield(ops, yieldEvery);
     }
+  }
+
+  // Stored positions are sibling slots, often sparse and mixed with urls.
+  // Create clamps them so Chromium does not throw; this pass writes the
+  // real order once every child exists.
+  for (const [parentId, items] of placements) {
+    const moves = await orderChildren(parentId, orderedLocalIds(items), countMove);
+    updated += moves;
   }
 
   return {

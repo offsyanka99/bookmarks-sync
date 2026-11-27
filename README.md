@@ -31,6 +31,11 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
 
+### Extension 1.2.1
+
+- **Download into an empty browser:** Chrome and Brave no longer stop Sync now with `Index out of bounds` when a folder’s stored position is past the links in that folder. The extension creates each bookmark within the live child count, then puts siblings in server order. Firefox uses the same apply code.
+- **Packages:** `dist/bookmarks-sync-chrome-1.2.1.zip`. Unsigned Firefox build: `dist/bookmarks-sync-firefox-1.2.1.xpi`. The Mozilla-signed XPI in the repo is still **1.1.3** (`dist/bookmarks-sync-firefox.xpi`) until `npm run ext:sign-firefox`.
+
 ### What’s new in 1.3.1
 
 - **Admin:** each user row has a **⋮** actions menu (Export ZIP, Dedupe, Clear bookmarks, New API key, and for other users Disable/Enable and Delete). Admin password fields stay beside the menu.
@@ -152,7 +157,6 @@ bookmarks-sync/
 │   ├── chrome/                    # Chrome source (store + load unpacked)
 │   ├── firefox/                   # Firefox build (sync from chrome/)
 │   ├── CHROME-STORE.md            # Store listing + publish notes
-│   ├── FIREFOX-INSTALL.md         # Signed .xpi install
 │   ├── shared/icons/              # Icon source of truth
 │   ├── scripts/sync-firefox.mjs   # npm run ext:sync (chrome → firefox)
 │   ├── scripts/check-extension-sync.mjs  # npm run ext:check
@@ -186,7 +190,7 @@ bookmarks-sync/
 **Not yet**
 
 - End-user web UI for managing bookmarks in the browser
-- Signed Firefox AMO package for extension **1.2.0** (1.1.3 remains the last Mozilla-signed XPI in `dist/` until it is re-signed)
+- Signed Firefox AMO package for extension **1.2.1** (1.1.3 remains the last Mozilla-signed XPI in `dist/` until it is re-signed)
 
 ---
 
@@ -810,15 +814,14 @@ Works in Chrome and other Chromium browsers that support the Chrome Web Store (i
 **Permanent (recommended — works on release Firefox when signed):**
 
 ```text
-dist/bookmarks-sync-firefox-1.1.0.xpi
+dist/bookmarks-sync-firefox-1.1.3.xpi   # last Mozilla-signed build
+dist/bookmarks-sync-firefox-1.2.1.xpi   # unsigned 1.2.1 (Developer Edition / Nightly, or sign first)
 ```
 
 1. `about:addons` → gear → **Install Add-on From File…**
-2. Choose that `.xpi` → confirm → **Options** → API URL + key → **Save**.
+2. Choose `dist/bookmarks-sync-firefox-1.1.3.xpi` on release Firefox (the 1.2.1 XPI is unsigned) → confirm → **Options** → API URL + key → **Save**.
 
-Release Firefox requires a **Mozilla-signed** XPI (repo rebuilds may be unsigned until re-signed).  
-Full steps, updates, and self-sign workflow:  
-[bookmarks-extension/FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md)
+Release Firefox requires a **Mozilla-signed** XPI. `npm run ext:pack-firefox` writes an unsigned package. `npm run ext:sign-firefox` signs it when `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` are set. The stable `dist/bookmarks-sync-firefox.xpi` in the repo stays the signed **1.1.3** build until 1.2.1 is signed.
 
 **Temporary (dev only — removed when Firefox quits):**
 
@@ -888,7 +891,7 @@ Authorization: Bearer bms_<your-user-api-key>
 | Sync hits wrong service | URL must be **API** port, not admin port |
 | `service_worker is currently disabled` | Load `bookmarks-extension/firefox/`, not `chrome/` |
 | Firefox missing latest UI/code | Run `npm run ext:sync`, then reload the temporary add-on |
-| Firefox extension gone after close | Temporary add-on only lasts one session — install the signed `dist/bookmarks-sync-firefox-*.xpi` ([FIREFOX-INSTALL.md](./bookmarks-extension/FIREFOX-INSTALL.md)) |
+| Firefox extension gone after close | Temporary add-on only lasts one session — install the signed `dist/bookmarks-sync-firefox-1.1.3.xpi` |
 | Changes not pushing | Strategy set to **Download**? Switch to **Merge** or **Upload** |
 | Server rejects large payload | Raise `MAX_SYNC_SIZE_BYTES` or split/clean bookmarks |
 

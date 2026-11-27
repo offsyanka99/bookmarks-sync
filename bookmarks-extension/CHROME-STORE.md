@@ -8,7 +8,7 @@
 |---|---|
 | **Store item ID** | `ndiehbfpikbmhdgffcfohoeojlmfbpal` |
 | **Status** | Live (Google-signed) |
-| **Current package version** | **1.2.0** |
+| **Current package version** | **1.2.1** |
 
 Chrome does **not** use a local “sign this XPI” flow like Firefox.  
 You upload a **ZIP** to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole); Google hosts and signs the published item.
@@ -17,7 +17,20 @@ This document is for **maintainers** updating the live listing. End users should
 
 ---
 
-## Submit update 1.2.0 (checklist)
+## Submit update 1.2.1 (checklist)
+
+### Package ready to upload
+
+| Item | Path |
+|---|---|
+| **ZIP (upload this)** | [`dist/bookmarks-sync-chrome-1.2.1.zip`](../dist/bookmarks-sync-chrome-1.2.1.zip) |
+| Stable name (same bytes) | `dist/bookmarks-sync-chrome.zip` |
+| Manifest version | `1.2.1` |
+| Server | Bookmarks Sync **1.3.1** |
+
+What’s new: fixes `Index out of bounds` when Sync now downloads a mixed folder into an empty Chrome or Brave profile. Sibling order is written after the tree exists.
+
+### Submit update 1.2.0 (checklist)
 
 ### Package ready to upload
 
@@ -65,16 +78,14 @@ Pre-generated at required sizes under [`docs/chrome-store/`](../docs/chrome-stor
 ### Dashboard steps (update)
 
 1. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → item **`ndiehbfpikbmhdgffcfohoeojlmfbpal`**.
-2. **Package** → **Upload new package** → select `dist/bookmarks-sync-chrome-1.2.0.zip`.
+2. **Package** → **Upload new package** → select `dist/bookmarks-sync-chrome-1.2.1.zip`.
 3. **Store listing** → upload/replace screenshots + promo tiles if desired (optional for this release).
-4. **Privacy** → confirm practices still match §4 (no change required for 1.2.0).
+4. **Privacy** → confirm practices still match §4 (no change required for 1.2.1).
 5. **What's new** (this version) — paste:
 
 ```text
-• Merge sends only changes and tombstones; the server assigns the sync cursor
-• Switching server URL or account clears local sync state (same account keeps it)
-• Chrome keeps Firefox Bookmarks Menu items in a "Bookmarks Menu" folder
-• Folders are identified by parent id, so a slash in a title stays one folder
+• Fixes "Index out of bounds" when a download creates a folder before the links that share its parent
+• Sibling order is applied after the tree exists, including sparse positions
 • Same privacy model: data only goes to the API URL you configure
 • Use with Bookmarks Sync server 1.3.1
 ```
@@ -91,7 +102,7 @@ Keep the same store item ID so user settings survive the update.
 2. Options → API URL + key → **Save** → allow host access.
 3. **Test connection** — should list `Time format: 24h` or `12h` when server is 1.2.2+.
 4. Two browsers on **Merge**: add → sync both; delete on one → sync both — delete should stick.
-5. Confirm popup footer shows **v1.2.0**.
+5. Confirm popup footer shows **v1.2.1**.
 
 Do **not** load the Firefox folder into Chrome.
 
@@ -108,7 +119,7 @@ npm run ext:pack-chrome
 Creates:
 
 ```text
-dist/bookmarks-sync-chrome-1.1.3.zip   # versioned (upload this)
+dist/bookmarks-sync-chrome-1.2.1.zip   # versioned (upload this)
 dist/bookmarks-sync-chrome.zip         # same contents, stable name
 ```
 
