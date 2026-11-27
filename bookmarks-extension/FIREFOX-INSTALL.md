@@ -17,8 +17,8 @@ A **signed** release package is under `dist/`:
 dist/bookmarks-sync-firefox-1.1.3.xpi   # last Mozilla-signed build (1.1.3)
 dist/bookmarks-sync-firefox-1.1.1.xpi   # previous signed release
 dist/bookmarks-sync-firefox-1.1.0.xpi   # older signed release
-dist/bookmarks-sync-firefox-1.2.1.xpi   # unsigned 1.2.1 (sign before release Firefox)
-dist/bookmarks-sync-firefox.xpi         # stable name = latest signed (still 1.1.3 until 1.2.1 is signed)
+dist/bookmarks-sync-firefox-1.2.2.xpi   # unsigned 1.2.2 (sign before release Firefox)
+dist/bookmarks-sync-firefox.xpi         # stable name = latest signed (still 1.1.3 until 1.2.2 is signed)
 ```
 
 AMO may also name downloads like `befd3a8e446247cfa279-1.1.3.xpi` — same signed bytes; prefer the names above in the repo.
@@ -113,6 +113,16 @@ Then finish listing text / review in the [AMO developer hub](https://addons.mozi
 2. Commit the **signed** XPIs under `dist/` (and this doc if version notes changed).
 3. Users update via **Install Add-on From File** with the same gecko id (settings kept).
 
+### What’s new in 1.2.2
+
+- Large merges keep matches and conflicts from every request. Large uploads are split, then extra server bookmarks are removed
+- A failed download clears the sync cursor with the id map, so the next sync is not a partial delta
+- Startup, scheduled, and change-based sync always merge. Download and Upload run when you click Sync now
+- The host prompt asks only for the API origin. Two folders with the same name stay separate
+- Notes, favicon, and tags are kept when the server is **1.3.2**
+
+The signed file in this repo is still **1.1.3** until `npm run ext:sign-firefox` is run for 1.2.2. The unsigned package is `dist/bookmarks-sync-firefox-1.2.2.xpi`.
+
 ### What’s new in 1.2.1
 
 - Fixes `Index out of bounds` on Chrome and Brave when Sync now downloads a folder whose position is past the links already in that parent
@@ -127,7 +137,7 @@ The signed file in this repo is still **1.1.3** until `npm run ext:sign-firefox`
 - Switching server URL or account clears the local id map and snapshot
 - Chrome keeps Firefox Bookmarks Menu bookmarks in a **Bookmarks Menu** folder
 - Folder identity uses `parentId` (a `/` in a title is one folder)
-- Needs Bookmarks Sync server **1.3.0** or later (current server **1.3.1**) for the cursor, per-user ids, and `parentId`
+- Needs Bookmarks Sync server **1.3.0** or later (current server **1.3.2**) for the cursor, per-user ids, and `parentId`
 
 ### What’s new in 1.1.3
 
@@ -155,8 +165,8 @@ From the **repo root**:
 
 ```bash
 npm run ext:pack-firefox
-# → dist/bookmarks-sync-firefox-1.2.1.xpi  (unsigned)
-# → dist/bookmarks-sync-firefox.xpi        (same bytes, unsigned — restore the signed 1.1.3 here until 1.2.1 is signed)
+# → dist/bookmarks-sync-firefox-1.2.2.xpi  (unsigned)
+# → dist/bookmarks-sync-firefox.xpi        (same bytes, unsigned — restore the signed 1.1.3 here until 1.2.2 is signed)
 ```
 
 ```bash

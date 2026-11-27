@@ -101,8 +101,8 @@
 
         <h2>Synchronization strategy</h2>
         <p class="section-intro muted">
-          How to reconcile bookmarks across devices. Usually keep changes from all sides when they are compatible;
-          sometimes you may want one side to fully overwrite the other.
+          Sync now uses this strategy. Startup, scheduled, and change-based sync always merge,
+          so they cannot wipe this browser or replace the server.
         </p>
 
         <fieldset class="radio-group" id="strategy-group">
@@ -111,7 +111,7 @@
           <label class="radio-card">
             <input type="radio" name="strategy" value="merge" checked />
             <span>
-              <strong>Always merge local changes with changes from other browsers</strong>
+              <strong>Merge local changes with changes from other browsers</strong>
               <span class="badge-rec">recommended</span>
               <span class="hint inline-hint">
                 Push local bookmarks and merge with the server using timestamps. Compatible changes from both sides are kept.
@@ -122,9 +122,9 @@
           <label class="radio-card">
             <input type="radio" name="strategy" value="download" />
             <span>
-              <strong>Always undo local changes and download changes from other browsers</strong>
+              <strong>Undo local changes and download the server tree</strong>
               <span class="hint inline-hint">
-                Do not upload local edits. Replace this browser’s tree with what is on the server (including additions and deletions).
+                Sync now replaces this browser with the server. Automatic sync still merges and does not erase local bookmarks.
               </span>
             </span>
           </label>
@@ -132,9 +132,9 @@
           <label class="radio-card">
             <input type="radio" name="strategy" value="upload" />
             <span>
-              <strong>Always upload local changes and undo changes from other browsers</strong>
+              <strong>Upload local changes and undo changes from other browsers</strong>
               <span class="hint inline-hint">
-                Force this browser’s bookmarks onto the server and overwrite remote additions/edits/deletions.
+                Sync now replaces the server with this browser. Automatic sync still merges and does not overwrite other browsers.
               </span>
             </span>
           </label>

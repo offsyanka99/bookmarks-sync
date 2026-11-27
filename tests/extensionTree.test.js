@@ -150,6 +150,160 @@ describe('extension folder identity', () => {
 
     assert.deepEqual(fake.titles('2'), ['Link', 'Work', 'Personal']);
   });
+
+  it('gives same-titled sibling folders distinct paths', () => {
+    const items = [
+      { localId: 'w1', parentLocalId: null, kind: 'folder', title: 'Work', folder: 'other:', tags: ['__dir__'] },
+      { localId: 'a', parentLocalId: 'w1', kind: 'url', title: 'A', url: 'https://a.example/', folder: 'other:Work' },
+      { localId: 'w2', parentLocalId: null, kind: 'folder', title: 'Work', folder: 'other:', tags: ['__dir__'] },
+      { localId: 'b', parentLocalId: 'w2', kind: 'url', title: 'B', url: 'https://b.example/', folder: 'other:Work' },
+      { localId: 'p', parentLocalId: null, kind: 'folder', title: 'Personal', folder: 'other:', tags: ['__dir__'] },
+      { localId: 'c', parentLocalId: 'p', kind: 'url', title: 'C', url: 'https://c.example/', folder: 'other:Personal' },
+    ];
+    const out = folderCodec.disambiguateFolderPaths(items, { w1: 'srv-w1', w2: 'srv-w2' });
+    const byId = Object.fromEntries(out.map((item) => [item.localId, item.folder]));
+    assert.notEqual(byId.a, byId.b);
+    assert.ok(byId.a.includes('srv-w1'));
+    assert.ok(byId.b.includes('srv-w2'));
+    assert.equal(byId.c, 'other:Personal');
+    assert.equal(byId.p, 'other:');
+  });
+
+  it('echoes snapshot notes and omits them when the snapshot has none', () => {
+    const local = [
+      {
+        localId: 'l',
+        parentLocalId: null,
+        kind: 'url',
+        title: 'A',
+        url: 'https://a.example/',
+        folder: 'other:',
+        position: 0,
+        tags: [],
+        dateAdded: Date.parse('2026-01-01T00:00:00.000Z'),
+      },
+    ];
+    const echoed = treeApply.toServerPayload(
+      local,
+      { localToServer: { l: 'S' }, serverToLocal: { S: 'l' } },
+      {
+        bumpAll: true,
+        emitTombstones: false,
+        snapshot: {
+          S: {
+            sig: 'x',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            folder: 'other:',
+            url: 'https://a.example/',
+            notes: 'hello',
+            favicon: 'ico',
+            tags: ['star'],
+          },
+        },
+      }
+    );
+    assert.equal(echoed.payload[0].notes, 'hello');
+    assert.equal(echoed.payload[0].favicon, 'ico');
+    assert.deepEqual(echoed.payload[0].tags, ['star']);
+
+    const omitted = treeApply.toServerPayload(
+      local,
+      { localToServer: { l: 'S' }, serverToLocal: { S: 'l' } },
+      {
+        bumpAll: true,
+        emitTombstones: false,
+        snapshot: {
+          S: {
+            sig: 'x',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            folder: 'other:',
+            url: 'https://a.example/',
+          },
+        },
+      }
+    );
+    assert.equal(Object.prototype.hasOwnProperty.call(omitted.payload[0], 'notes'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(omitted.payload[0], 'tags'), false);
+  });
+
+  it('keeps merges from every sync chunk and bookmarks from the last', () => {
+    const combined = sync.combineSyncResponses([
+      {
+        created: 1,
+        merged: 1,
+        merges: [{ clientId: 'Y', serverId: 'X' }],
+        conflicts: [{ id: 'A', reason: 'server_newer' }],
+        bookmarks: [{ id: 'old' }],
+        tombstones: [{ id: 'gone' }],
+        syncCursor: 4,
+      },
+      {
+        created: 2,
+        merged: 0,
+        merges: [],
+        conflicts: [],
+        bookmarks: [{ id: 'X' }, { id: 'Z' }],
+        tombstones: [],
+        syncCursor: 9,
+        serverTime: '2026-06-01T00:00:00.000Z',
+        count: 2,
+      },
+    ]);
+    assert.equal(combined.created, 3);
+    assert.equal(combined.merged, 1);
+    assert.equal(combined.merges[0].serverId, 'X');
+    assert.equal(combined.conflicts[0].id, 'A');
+    assert.deepEqual(combined.bookmarks.map((row) => row.id), ['X', 'Z']);
+    assert.equal(combined.syncCursor, 9);
+  });
+
+  it('uses merge for automatic runs and the saved strategy for Sync now', () => {
+    assert.equal(sync.strategyForSync('download', { reason: 'startup' }), 'merge');
+    assert.equal(sync.strategyForSync('upload', { reason: 'schedule' }), 'merge');
+    assert.equal(sync.strategyForSync('upload', { reason: 'change' }), 'merge');
+    assert.equal(sync.strategyForSync('download', { reason: 'manual' }), 'download');
+    assert.equal(sync.strategyForSync('merge', { reason: 'manual', strategy: 'upload' }), 'upload');
+  });
+
+  it('requests only the API origin, not every site', async () => {
+    const api = await import(
+      pathToFileURL(path.join(__dirname, '..', 'bookmarks-extension', 'chrome', 'lib', 'api.js')).href
+    );
+    const remote = api.hostPermissionPatterns('http://10.1.2.3:31059');
+    assert.deepEqual(remote, ['http://10.1.2.3:31059/*']);
+    const loopback = api.hostPermissionPatterns('http://localhost:31059');
+    assert.equal(loopback.includes('http://*/*'), false);
+    assert.equal(loopback.includes('https://*/*'), false);
+    assert.ok(loopback.includes('http://127.0.0.1:31059/*'));
+    assert.ok(loopback.includes('http://localhost:31059/*'));
+  });
+
+  it('skips a bookmark the browser refuses and still applies the rest', async () => {
+    const fake = installFakeBookmarks();
+    const result = await treeApply.applyServerBookmarks(
+      [
+        link('good', 'Good', 'https://good.example/', 'other:', 0, null),
+        link('bad', 'Bad', 'bad:nope', 'other:', 1, null),
+      ],
+      { localToServer: {}, serverToLocal: {} },
+      { syncRoot: 'other', removeLocalMissing: false, matchByUrl: false }
+    );
+    assert.deepEqual(fake.titles('2'), ['Good']);
+    assert.equal(result.created, 1);
+    assert.ok(result.skipped >= 1);
+  });
+
+  it('splits a payload that would exceed the body limit', () => {
+    const fat = 'x'.repeat(40000);
+    const items = [
+      { id: 'a', title: fat },
+      { id: 'b', title: fat },
+      { id: 'c', title: fat },
+    ];
+    const chunks = sync.chunkSyncItems(items, 100000);
+    assert.ok(chunks.length >= 2);
+    assert.equal(chunks.flat().length, 3);
+  });
 });
 
 function folder(id, title, folderPath, position, parentId) {
@@ -243,6 +397,9 @@ function installFakeBookmarks() {
       const index = details.index == null ? parent.children.length : details.index;
       if (index < 0 || index > parent.children.length) {
         throw new Error('Index out of bounds.');
+      }
+      if (details.url && String(details.url).startsWith('bad:')) {
+        throw new Error('Invalid URL.');
       }
       const node = add({
         id: String(nextId),

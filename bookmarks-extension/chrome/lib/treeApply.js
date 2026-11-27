@@ -11,6 +11,7 @@ import {
   decodeFolder,
   decodePath,
   encodePath,
+  disambiguateFolderPaths,
   isDirEntry,
   itemSignature,
   urlsMatch,
@@ -227,26 +228,46 @@ export function toServerPayload(localBookmarks, idMap, opts = {}) {
   const bumpAll = opts.bumpAll === true;
   const emitTombstones = opts.emitTombstones !== false;
   const nowIso = new Date().toISOString();
-  const localToServer = { ...idMap.localToServer };
-  const serverToLocal = { ...idMap.serverToLocal };
+  const localToServer = { ...(idMap?.localToServer || {}) };
+  const serverToLocal = { ...(idMap?.serverToLocal || {}) };
   const payload = [];
 
-  for (const b of localBookmarks) {
-    let serverId = localToServer[b.localId];
+  for (const b of localBookmarks || []) {
+    if (!b?.localId || localToServer[b.localId]) continue;
+    const serverId = crypto.randomUUID();
+    localToServer[b.localId] = serverId;
+    serverToLocal[serverId] = b.localId;
+  }
+
+  // Same-titled sibling folders need distinct paths before signatures and merges.
+  const prepared = disambiguateFolderPaths(localBookmarks || [], localToServer);
+
+  for (const b of prepared) {
+    let serverId = b?.localId ? localToServer[b.localId] : null;
     if (!serverId) {
       serverId = crypto.randomUUID();
-      localToServer[b.localId] = serverId;
-      serverToLocal[serverId] = b.localId;
+      if (b?.localId) {
+        localToServer[b.localId] = serverId;
+        serverToLocal[serverId] = b.localId;
+      }
     }
 
     const isFolder = b.kind === 'folder' || (b.tags || []).includes(DIR_TAG);
+    const prev = snapshot[serverId];
+    const tagsKnown = Array.isArray(prev?.tags);
+    const tags = tagsKnown
+      ? isFolder
+        ? [...new Set([DIR_TAG, ...prev.tags])]
+        : prev.tags.filter((tag) => tag !== DIR_TAG)
+      : isFolder
+        ? [DIR_TAG]
+        : [];
     const entry = {
       id: serverId,
       title: b.title || (isFolder ? 'Folder' : ''),
       url: isFolder ? '' : b.url || '',
       folder: b.folder || encodeFolder('other', ''),
-      tags: isFolder ? [DIR_TAG] : Array.isArray(b.tags) ? b.tags : [],
-      notes: '',
+      tags,
       position: Number.isFinite(Number(b.position)) ? Number(b.position) : 0,
       parentId: b.parentLocalId ? localToServer[b.parentLocalId] || null : null,
       createdAt: msToIso(b.dateAdded),
@@ -254,9 +275,14 @@ export function toServerPayload(localBookmarks, idMap, opts = {}) {
       _localId: b.localId,
       _kind: isFolder ? 'folder' : 'url',
     };
+    // Echo server-owned fields when we have them. Omitting the key lets a
+    // 1.3.2 server keep notes, favicon, and tags this extension does not edit.
+    if (typeof prev?.notes === 'string') entry.notes = prev.notes;
+    if (prev && Object.prototype.hasOwnProperty.call(prev, 'favicon')) {
+      entry.favicon = prev.favicon || null;
+    }
 
     const sig = itemSignature(entry);
-    const prev = snapshot[serverId];
     // Only bump updatedAt for real local edits. Missing snapshot entries for *new*
     // local ids still bump (first push). Do not treat minor unknown state as "now"
     // when we already have a previous updatedAt from the id map path — snapshot miss
@@ -265,6 +291,7 @@ export function toServerPayload(localBookmarks, idMap, opts = {}) {
     entry.updatedAt = changed ? nowIso : prev.updatedAt || nowIso;
     entry._changed = changed;
     entry._sig = sig;
+    if (!tagsKnown && !isFolder) delete entry.tags;
 
     payload.push(entry);
   }
@@ -305,8 +332,6 @@ export function toServerPayload(localBookmarks, idMap, opts = {}) {
         title: '',
         url: '',
         folder: '',
-        tags: [],
-        notes: '',
         position: 0,
         deletedAt: nowIso,
         updatedAt: nowIso,
@@ -338,6 +363,9 @@ export function snapshotFromServerBookmarks(serverBookmarks) {
       folder: b.folder || '',
       url: isDirEntry(b) ? '' : b.url || '',
       parentId: b.parentId || null,
+      notes: typeof b.notes === 'string' ? b.notes : '',
+      favicon: b.favicon || null,
+      tags: Array.isArray(b.tags) ? b.tags : [],
     };
   }
   return snap;
@@ -611,10 +639,11 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     return ensurePath(root, path);
   }
 
-  // First pass: ensure all directory nodes exist and are mapped
+  // First pass: ensure all directory nodes exist and are mapped.
+  // One rejected bookmark must not abort the rest of the tree.
   for (const sb of active) {
     if (!isDirEntry(sb)) continue;
-
+    try {
     const { root, path: parentPath } = decodeFolder(sb.folder);
     const parentId = await resolveParent(sb);
 
@@ -669,6 +698,14 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     serverToLocal[sb.id] = idStr;
     pathToLocalId.set(selfKey, idStr);
     notePlacement(parentId, idStr, sb);
+    } catch (err) {
+      skipped += 1;
+      debugWarn('treeApply', 'apply folder failed', {
+        id: sb?.id,
+        title: sb?.title,
+        err: String(err?.message || err),
+      });
+    }
   }
 
   // Second pass: URL bookmarks
@@ -678,6 +715,7 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
       skipped += 1;
       continue;
     }
+    try {
 
     const parentId = await resolveParent(sb);
 
@@ -751,6 +789,14 @@ export async function applyServerBookmarks(serverBookmarks, idMap, options = {})
     localToServer[idStr] = sb.id;
     serverToLocal[sb.id] = idStr;
     notePlacement(parentId, idStr, sb);
+    } catch (err) {
+      skipped += 1;
+      debugWarn('treeApply', 'apply bookmark failed', {
+        id: sb?.id,
+        url: sb?.url,
+        err: String(err?.message || err),
+      });
+    }
   }
 
   if (options.removeLocalMissing) {

@@ -1,6 +1,6 @@
 # Bookmarks Sync
 
-**Version:** `1.3.1`
+**Version:** `1.3.2`
 
 Self-hosted multi-user bookmark sync API for browsers and scripts, plus a companion **Manifest V3** extension for **Chrome**, **Brave**, and **Firefox**. Admins manage users in a web portal; each user gets an API key and isolated bookmarks in SQLite. Designed to sit behind Caddy (or similar) for HTTPS—not a full xBrowserSync clone (no mandatory E2E encryption).
 
@@ -31,10 +31,21 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 |---|---|
 | ![Extension options](docs/screenshots/extension-options.png) | ![Extension popup](docs/screenshots/extension-popup.png) |
 
-### Extension 1.2.1
+### Extension 1.2.2
 
-- **Download into an empty browser:** Chrome and Brave no longer stop Sync now with `Index out of bounds` when a folder’s stored position is past the links in that folder. The extension creates each bookmark within the live child count, then puts siblings in server order. Firefox uses the same apply code.
-- **Packages:** `dist/bookmarks-sync-chrome-1.2.1.zip`. Unsigned Firefox build: `dist/bookmarks-sync-firefox-1.2.1.xpi`. The Mozilla-signed XPI in the repo is still **1.1.3** (`dist/bookmarks-sync-firefox.xpi`) until `npm run ext:sign-firefox`.
+- **Merge and upload:** a large change list is split into several requests. Merges and conflicts from every part are kept. Upload is split the same way, then extra server rows are removed.
+- **Download:** if applying the server tree fails, the extension clears the cursor together with the id map, so the next sync is not a partial delta. One bookmark the browser rejects does not abort the rest.
+- **Automatic sync** (startup, schedule, bookmark changes) always merges. Download and Upload run only when you click Sync now.
+- **Host permission** prompt asks only for the API origin you configured.
+- **Same-titled sibling folders** stay separate. Notes, favicon, and tags set by another client are kept (server **1.3.2**).
+- **Packages:** `dist/bookmarks-sync-chrome-1.2.2.zip`. Unsigned Firefox build: `dist/bookmarks-sync-firefox-1.2.2.xpi`. The Mozilla-signed XPI in the repo is still **1.1.3** (`dist/bookmarks-sync-firefox.xpi`) until `npm run ext:sign-firefox`.
+
+### What’s new in 1.3.2
+
+- **Sync clock:** a client `updatedAt` more than five minutes ahead of the server is stored as server time, so one device cannot lock last-write-wins until a future date.
+- **Fields the extension does not edit:** omitted `notes`, `favicon`, and `tags` are left as they are. Sending an empty value still clears them.
+- **Invalid sync rows** are skipped. A bad URL or a non-object item no longer fails the whole request.
+- **Dependencies:** Express 5.3, morgan 1.12, better-sqlite3 13.2. `npm audit` reports no vulnerabilities.
 
 ### What’s new in 1.3.1
 
@@ -190,7 +201,7 @@ bookmarks-sync/
 **Not yet**
 
 - End-user web UI for managing bookmarks in the browser
-- Signed Firefox AMO package for extension **1.2.1** (1.1.3 remains the last Mozilla-signed XPI in `dist/` until it is re-signed)
+- Signed Firefox AMO package for extension **1.2.2** (1.1.3 remains the last Mozilla-signed XPI in `dist/` until it is re-signed)
 
 ---
 
@@ -663,14 +674,16 @@ curl -s "$BASE/api/bookmarks/export" \
 Version tags are published to GitHub Container Registry on each `v*` release ([workflow](./.github/workflows/docker-publish.yml)):
 
 ```text
-ghcr.io/offsyanka99/bookmarks-sync:1.3.1
+ghcr.io/offsyanka99/bookmarks-sync:1.3.2
 ghcr.io/offsyanka99/bookmarks-sync:latest
 ```
 
 Package page: [ghcr.io/offsyanka99/bookmarks-sync](https://github.com/offsyanka99/bookmarks-sync/pkgs/container/bookmarks-sync)
 
+The `1.3.2` tag is published when the `v1.3.2` git tag is pushed. Until that image exists, build from this repo with `docker compose up -d --build`.
+
 ```bash
-docker pull ghcr.io/offsyanka99/bookmarks-sync:1.3.1
+docker pull ghcr.io/offsyanka99/bookmarks-sync:1.3.2
 
 docker run -d \
   --name bookmarks-sync \
@@ -681,7 +694,7 @@ docker run -d \
   -e DB_PATH=/app/data/bookmarks.db \
   -e NODE_ENV=production \
   -v bookmarks-sync-data:/app/data \
-  ghcr.io/offsyanka99/bookmarks-sync:1.3.1
+  ghcr.io/offsyanka99/bookmarks-sync:1.3.2
 ```
 
 If the package is private, `docker login ghcr.io` with a GitHub PAT that has `read:packages`. Public packages pull without login.
@@ -712,7 +725,7 @@ Optional: pass `-e ADMIN_PASSWORD=...` and/or `-e SESSION_SECRET=...` for headle
 # Build from local Dockerfile (default in docker-compose.yml)
 docker compose up -d --build
 
-# Or pull from GHCR: set image: ghcr.io/offsyanka99/bookmarks-sync:1.3.1
+# Or pull from GHCR: set image: ghcr.io/offsyanka99/bookmarks-sync:1.3.2
 # and comment out build: in docker-compose.yml, then:
 # docker compose up -d
 ```
@@ -722,7 +735,7 @@ Optional env: `ADMIN_PASSWORD`, `SESSION_SECRET`, `SESSION_MAX_AGE_MINUTES` (see
 
 ### TrueNAS SCALE (custom app YAML)
 
-Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**). Defaults to the **GHCR image** `ghcr.io/offsyanka99/bookmarks-sync:1.3.1`:
+Ready-to-paste Compose example (ports, dataset volume, 1 CPU / 512 MB limits — **no passwords in YAML**). Defaults to the **GHCR image** `ghcr.io/offsyanka99/bookmarks-sync:1.3.2`:
 
 **[`docs/truenas-scale.compose.yaml`](./docs/truenas-scale.compose.yaml)**
 
@@ -815,13 +828,13 @@ Works in Chrome and other Chromium browsers that support the Chrome Web Store (i
 
 ```text
 dist/bookmarks-sync-firefox-1.1.3.xpi   # last Mozilla-signed build
-dist/bookmarks-sync-firefox-1.2.1.xpi   # unsigned 1.2.1 (Developer Edition / Nightly, or sign first)
+dist/bookmarks-sync-firefox-1.2.2.xpi   # unsigned 1.2.2 (Developer Edition / Nightly, or sign first)
 ```
 
 1. `about:addons` → gear → **Install Add-on From File…**
-2. Choose `dist/bookmarks-sync-firefox-1.1.3.xpi` on release Firefox (the 1.2.1 XPI is unsigned) → confirm → **Options** → API URL + key → **Save**.
+2. Choose `dist/bookmarks-sync-firefox-1.1.3.xpi` on release Firefox (the 1.2.2 XPI is unsigned) → confirm → **Options** → API URL + key → **Save**.
 
-Release Firefox requires a **Mozilla-signed** XPI. `npm run ext:pack-firefox` writes an unsigned package. `npm run ext:sign-firefox` signs it when `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` are set. The stable `dist/bookmarks-sync-firefox.xpi` in the repo stays the signed **1.1.3** build until 1.2.1 is signed.
+Release Firefox requires a **Mozilla-signed** XPI. `npm run ext:pack-firefox` writes an unsigned package. `npm run ext:sign-firefox` signs it when `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` are set. The stable `dist/bookmarks-sync-firefox.xpi` in the repo stays the signed **1.1.3** build until 1.2.2 is signed.
 
 **Temporary (dev only — removed when Firefox quits):**
 

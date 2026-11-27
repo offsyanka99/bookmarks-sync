@@ -4,18 +4,19 @@
  * Strategies:
  * - merge: push changed locals + tombstones for local deletes; sticky server deletes;
  *   apply active set and remote tombstones (removeLocalMissing)
- * - download: pull server only and rewrite local to match
- * - upload: force-push full local tree as source of truth
+ * - download: pull server only and rewrite local to match (Sync now only)
+ * - upload: force-push full local tree as source of truth (Sync now only)
+ *
+ * Startup, schedule, and bookmark-change runs always merge. Download and upload
+ * replace a whole side and run only when the user clicks Sync now.
  */
 
 import {
   getSettings,
   getIdMap,
-  saveIdMap,
   getMeta,
   saveMeta,
   getSyncSnapshot,
-  saveSyncSnapshot,
   clearSyncState,
   saveSyncRecords,
 } from './storage.js';
@@ -217,8 +218,70 @@ function jsonBytes(value) {
   }
 }
 
+const AUTOMATIC_REASONS = new Set(['startup', 'schedule', 'change']);
+
+/**
+ * Manual Sync now uses the saved strategy. Automatic runs always merge so a
+ * scheduled or change-based sync cannot wipe this browser or the server.
+ * @param {string} savedStrategy
+ * @param {{ reason?: string, strategy?: string }} [opts]
+ * @returns {'merge'|'download'|'upload'}
+ */
+export function strategyForSync(savedStrategy, opts = {}) {
+  const saved = ['merge', 'download', 'upload'].includes(savedStrategy) ? savedStrategy : 'merge';
+  if (AUTOMATIC_REASONS.has(opts.reason)) return 'merge';
+  if (opts.strategy === 'merge' || opts.strategy === 'download' || opts.strategy === 'upload') {
+    return opts.strategy;
+  }
+  return saved;
+}
+
+/**
+ * Keep merges and conflicts from every chunk. Bookmark and tombstone lists
+ * come from the last response, which is the seq delta for the original cursor.
+ * @param {object[]} responses
+ */
+export function combineSyncResponses(responses) {
+  const acc = {
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    skipped: 0,
+    deleted: 0,
+    merged: 0,
+    merges: [],
+    conflicts: [],
+    bookmarks: [],
+    tombstones: [],
+    syncCursor: null,
+    serverTime: null,
+    lastSyncAt: null,
+    fullResync: false,
+    count: 0,
+  };
+  for (const chunk of responses || []) {
+    if (!chunk) continue;
+    acc.created += Number(chunk.created) || 0;
+    acc.updated += Number(chunk.updated) || 0;
+    acc.unchanged += Number(chunk.unchanged) || 0;
+    acc.skipped += Number(chunk.skipped) || 0;
+    acc.deleted += Number(chunk.deleted) || 0;
+    acc.merged += Number(chunk.merged) || 0;
+    if (Array.isArray(chunk.merges)) acc.merges.push(...chunk.merges);
+    if (Array.isArray(chunk.conflicts)) acc.conflicts.push(...chunk.conflicts);
+    acc.bookmarks = Array.isArray(chunk.bookmarks) ? chunk.bookmarks : [];
+    acc.tombstones = Array.isArray(chunk.tombstones) ? chunk.tombstones : [];
+    if (chunk.syncCursor != null) acc.syncCursor = chunk.syncCursor;
+    acc.serverTime = chunk.serverTime || chunk.lastSyncAt || acc.serverTime;
+    acc.lastSyncAt = chunk.lastSyncAt || chunk.serverTime || acc.lastSyncAt;
+    acc.fullResync = Boolean(chunk.fullResync);
+    if (chunk.count != null) acc.count = chunk.count;
+  }
+  return acc;
+}
+
 /** Split a payload so each request stays under the server body limit. */
-function chunkItems(items, maxBytes) {
+export function chunkSyncItems(items, maxBytes) {
   const budget = Math.max(64 * 1024, Math.floor(Number(maxBytes) * 0.75) || 1048576);
   const chunks = [];
   let current = [];
@@ -248,7 +311,7 @@ export async function runSync(opts = {}) {
     throw new ApiError('Host permission was denied for this API URL');
   }
 
-  const strategy = opts.strategy || settings.strategy || 'merge';
+  const strategy = strategyForSync(settings.strategy, opts);
   const confirmDestructive = Boolean(opts.confirmDestructive);
 
   await reconcileAccount(settings);
@@ -349,28 +412,25 @@ async function runMergeStrategy(settings, opts = {}) {
 
   const canReplaceSafely =
     Boolean(meta.syncCursor || meta.lastSyncAt) && mapSize > 0 && local.length > 0;
-  let maxBytes = 1048576;
-  try {
-    const info = await getInfo(settings);
-    if (Number(info?.maxSyncSizeBytes) > 0) maxBytes = Number(info.maxSyncSizeBytes);
-  } catch (err) {
-    debugLog('sync', 'info size limit unavailable', { err: String(err?.message || err) });
-  }
-  const chunks = chunkItems(changedPayload, maxBytes);
+  const maxBytes = await readMaxSyncBytes(settings);
+  const chunks = chunkSyncItems(changedPayload, maxBytes);
   if (chunks.length === 0) chunks.push([]);
   const cursor = Number(meta.syncCursor) > 0 ? Math.floor(Number(meta.syncCursor)) : null;
-  let serverResult = null;
+  const responses = [];
   for (const chunk of chunks) {
-    serverResult = await syncBookmarks(settings, chunk, {
-      replace: false,
-      force: Boolean(opts.force),
-      lastSyncAt: meta.lastSyncAt || null,
-      syncCursor: cursor,
-      changesOnly: true,
-      pageSize: 400,
-      confirmDestructive: Boolean(opts.confirmDestructive),
-    });
+    responses.push(
+      await syncBookmarks(settings, chunk, {
+        replace: false,
+        force: Boolean(opts.force),
+        lastSyncAt: meta.lastSyncAt || null,
+        syncCursor: cursor,
+        changesOnly: true,
+        pageSize: 400,
+        confirmDestructive: Boolean(opts.confirmDestructive),
+      })
+    );
   }
+  const serverResult = combineSyncResponses(responses);
 
   const overlay = (serverResult.conflicts || [])
     .filter((c) => c?.reason === 'server_newer' && c.server && !c.server.deletedAt)
@@ -394,11 +454,13 @@ async function runMergeStrategy(settings, opts = {}) {
   const deletedOnServer = new Set(
     (serverResult.tombstones || []).map((t) => t?.id).filter(Boolean).map(String)
   );
+  const invalidIds = new Set();
   for (const c of serverResult.conflicts || []) {
     if (c?.reason === 'server_deleted') {
       const id = c.server?.id || c.id;
       if (id) deletedOnServer.add(String(id));
     }
+    if (c?.reason === 'invalid' && c.id) invalidIds.add(String(c.id));
   }
   // Live rows should appear on the active server list, or be acknowledged as server-deleted.
   // Account for folder+url merges remapping client UUIDs → existing server ids.
@@ -406,7 +468,12 @@ async function runMergeStrategy(settings, opts = {}) {
   const livePushApplied = sentLive.every((p) => {
     const id = String(p.id);
     const resolved = mergeClientToServer.get(id) || id;
-    return serverIds.has(resolved) || deletedOnServer.has(resolved) || deletedOnServer.has(id);
+    return (
+      serverIds.has(resolved) ||
+      deletedOnServer.has(resolved) ||
+      deletedOnServer.has(id) ||
+      invalidIds.has(id)
+    );
   });
   const protectServerIds = protectServerIdsFromConflicts(serverResult.conflicts);
 
@@ -570,11 +637,17 @@ async function runDownloadStrategy(settings, opts = {}) {
     });
   }
 
-  // True "replace local with server": wipe managed roots, reset maps, then recreate
+  // True "replace local with server": wipe managed roots, reset maps, then recreate.
+  // Clear the cursor in the same write as the empty map. A failed apply used to
+  // leave an empty map with the old cursor, so the next merge uploaded leftovers
+  // and asked only for a delta.
   cancelPendingChangeBasedSync();
+  await saveSyncRecords({
+    idMap: { localToServer: {}, serverToLocal: {} },
+    syncSnapshot: {},
+    meta: { syncCursor: null, lastSyncAt: null },
+  });
   const wiped = await clearManagedBookmarkRoots();
-  await saveIdMap({ localToServer: {}, serverToLocal: {} });
-  await saveSyncSnapshot({});
 
   const apply = await applyServerBookmarks(
     serverBookmarks,
@@ -611,6 +684,105 @@ async function runDownloadStrategy(settings, opts = {}) {
     _idMap: apply.idMap,
     _snapshot: snapshotFromServerBookmarks(serverBookmarks),
   };
+}
+
+async function readMaxSyncBytes(settings) {
+  let maxBytes = 1048576;
+  try {
+    const info = await getInfo(settings);
+    if (Number(info?.maxSyncSizeBytes) > 0) maxBytes = Number(info.maxSyncSizeBytes);
+  } catch (err) {
+    debugLog('sync', 'info size limit unavailable', { err: String(err?.message || err) });
+  }
+  return maxBytes;
+}
+
+/**
+ * One request uses replace+force. A library over the body limit is upserted in
+ * chunks, then server rows that are not in the local tree are tombstoned.
+ * @param {object} settings
+ * @param {object[]} payload
+ * @param {{ maxBytes: number, confirmDestructive?: boolean, knownIds?: string[]|null }} opts
+ */
+async function pushUpload(settings, payload, opts) {
+  const chunks = chunkSyncItems(payload, opts.maxBytes);
+  if (chunks.length <= 1) {
+    return syncBookmarks(settings, payload, {
+      replace: true,
+      force: true,
+      lastSyncAt: null,
+      pageSize: 400,
+      confirmDestructive: Boolean(opts.confirmDestructive),
+      knownIds: opts.knownIds || null,
+    });
+  }
+
+  let cursor = null;
+  try {
+    const head = await listBookmarks(settings, { pageSize: 1 });
+    if (Number(head?.syncCursor) > 0) cursor = Math.floor(Number(head.syncCursor));
+  } catch (err) {
+    debugLog('sync', 'upload cursor unavailable', { err: String(err?.message || err) });
+  }
+
+  const responses = [];
+  for (const chunk of chunks) {
+    const response = await syncBookmarks(settings, chunk, {
+      replace: false,
+      force: true,
+      changesOnly: true,
+      syncCursor: cursor,
+      lastSyncAt: null,
+      pageSize: 400,
+      confirmDestructive: Boolean(opts.confirmDestructive),
+    });
+    responses.push(response);
+    if (response?.syncCursor != null) cursor = response.syncCursor;
+  }
+
+  const combined = combineSyncResponses(responses);
+  const mergeClientToServer = new Map(
+    (combined.merges || [])
+      .filter((m) => m?.clientId && m?.serverId)
+      .map((m) => [String(m.clientId), String(m.serverId)])
+  );
+  const kept = new Set();
+  for (const row of payload) {
+    if (!row?.id || row.deletedAt || row._tombstone) continue;
+    kept.add(mergeClientToServer.get(String(row.id)) || String(row.id));
+  }
+
+  const listed = await listAllBookmarks(settings);
+  const now = new Date().toISOString();
+  const tombs = (listed?.bookmarks || [])
+    .filter((row) => row?.id && !kept.has(String(row.id)))
+    .map((row) => ({
+      id: String(row.id),
+      deletedAt: now,
+      updatedAt: now,
+    }));
+  for (const chunk of chunkSyncItems(tombs, opts.maxBytes)) {
+    const response = await syncBookmarks(settings, chunk, {
+      replace: false,
+      force: true,
+      changesOnly: true,
+      syncCursor: cursor,
+      pageSize: 400,
+      confirmDestructive: Boolean(opts.confirmDestructive),
+    });
+    responses.push(response);
+    if (response?.syncCursor != null) cursor = response.syncCursor;
+  }
+
+  const finalList = await listAllBookmarks(settings);
+  const result = combineSyncResponses(responses);
+  result.bookmarks = finalList?.bookmarks || [];
+  result.tombstones = [];
+  result.syncCursor = finalList?.syncCursor ?? result.syncCursor;
+  result.serverTime = finalList?.serverTime || result.serverTime;
+  result.lastSyncAt = result.serverTime;
+  result.count = result.bookmarks.length;
+  return result;
 }
 
 async function runUploadStrategy(settings, opts = {}) {
@@ -661,18 +833,15 @@ async function runUploadStrategy(settings, opts = {}) {
       }
     } catch (err) {
       if (err?.code === 'destructive_refused') throw err;
-      debugLog('sync', 'upload pre-check list failed; continuing', {
-        err: String(err?.message || err),
-      });
+      throw new ApiError(
+        `Upload aborted: could not read the server library to check how many bookmarks would be deleted. ${err?.message || err}`
+      );
     }
   }
 
-  const serverResult = await syncBookmarks(settings, payload, {
-    replace: true,
-    force: true,
-    lastSyncAt: null,
-    pageSize: 400,
-    // force skips server failsafe; confirmDestructive used for client-side check above
+  const maxBytes = await readMaxSyncBytes(settings);
+  const serverResult = await pushUpload(settings, payload, {
+    maxBytes,
     confirmDestructive: Boolean(opts.confirmDestructive),
     knownIds: knownIds || null,
   });

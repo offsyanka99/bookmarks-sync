@@ -226,4 +226,90 @@ describe('Bookmark.syncFromClient', () => {
     const child = result.bookmarks.find((row) => row.id === 'C');
     assert.equal(child.parentId, 'F');
   });
+
+  it('clamps a far-future client timestamp so a later edit can win', () => {
+    const first = Bookmark.syncFromClient(userId, [
+      {
+        id: 'FUT',
+        title: 'future',
+        url: 'https://future.example/',
+        folder: 'other:',
+        updatedAt: '2099-01-01T00:00:00.000Z',
+      },
+    ]);
+    const stored = first.bookmarks.find((row) => row.id === 'FUT');
+    assert.ok(stored);
+    assert.ok(Date.parse(stored.updatedAt) < Date.parse('2030-01-01T00:00:00.000Z'));
+    const later = new Date(Date.now() + 2000).toISOString();
+    const next = Bookmark.syncFromClient(userId, [
+      {
+        id: 'FUT',
+        title: 'honest',
+        url: 'https://future.example/',
+        folder: 'other:',
+        updatedAt: later,
+      },
+    ]);
+    assert.equal(next.bookmarks.find((row) => row.id === 'FUT').title, 'honest');
+  });
+
+  it('keeps notes, favicon, and tags when the client omits them', () => {
+    Bookmark.syncFromClient(userId, [
+      {
+        id: 'N',
+        title: 'n',
+        url: 'https://n.example/',
+        folder: 'other:',
+        notes: 'keep me',
+        favicon: 'https://n.example/favicon.ico',
+        tags: ['star'],
+        updatedAt: t0,
+      },
+    ]);
+    const now = new Date().toISOString();
+    const kept = Bookmark.syncFromClient(userId, [
+      {
+        id: 'N',
+        title: 'n2',
+        url: 'https://n.example/',
+        folder: 'other:',
+        updatedAt: now,
+      },
+    ]);
+    const row = kept.bookmarks.find((item) => item.id === 'N');
+    assert.equal(row.title, 'n2');
+    assert.equal(row.notes, 'keep me');
+    assert.equal(row.favicon, 'https://n.example/favicon.ico');
+    assert.deepEqual(row.tags, ['star']);
+
+    const cleared = Bookmark.syncFromClient(userId, [
+      {
+        id: 'N',
+        title: 'n2',
+        url: 'https://n.example/',
+        folder: 'other:',
+        notes: '',
+        favicon: null,
+        tags: [],
+        updatedAt: new Date(Date.now() + 2000).toISOString(),
+      },
+    ]);
+    const empty = cleared.bookmarks.find((item) => item.id === 'N');
+    assert.equal(empty.notes, '');
+    assert.equal(empty.favicon, null);
+    assert.deepEqual(empty.tags, []);
+  });
+
+  it('skips an invalid sync row and still stores the valid one', () => {
+    const result = Bookmark.syncFromClient(userId, [
+      { id: 'ok', title: 'ok', url: 'https://ok.example/', folder: 'other:', updatedAt: t0 },
+      { id: 'bad', title: 'bad', url: 12, folder: 'other:' },
+      { id: 'wide', title: 'wide', url: `https://wide.example/${'u'.repeat(9000)}`, folder: 'other:' },
+      { id: 'dir', title: 'Work', url: '', tags: ['__dir__'], folder: 'other:', updatedAt: t0 },
+    ]);
+    const ids = result.bookmarks.map((row) => row.id).sort();
+    assert.deepEqual(ids, ['dir', 'ok']);
+    assert.ok(result.skipped >= 2);
+    assert.ok(result.conflicts.some((item) => item.reason === 'invalid' && item.id === 'bad'));
+  });
 });

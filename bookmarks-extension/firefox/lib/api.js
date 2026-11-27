@@ -293,7 +293,10 @@ export function apiOriginPattern(apiBaseUrl) {
 }
 
 /**
- * Extra patterns that help Firefox grant loopback access reliably.
+ * Origins to request for this API URL.
+ * The manifest declares every http and https origin as optional so the browser
+ * can grant one specific host. The prompt asks only for the configured origin,
+ * plus loopback aliases when the host is localhost.
  * @param {string} apiBaseUrl
  * @returns {string[]}
  */
@@ -302,14 +305,11 @@ export function hostPermissionPatterns(apiBaseUrl) {
   const u = new URL(String(apiBaseUrl).trim());
   const patterns = new Set([primary]);
 
-  if (u.protocol === 'http:') patterns.add('http://*/*');
-  if (u.protocol === 'https:') patterns.add('https://*/*');
-
   if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]') {
     const port = u.port ? `:${u.port}` : '';
-    patterns.add(`http://127.0.0.1${port}/*`);
-    patterns.add(`http://localhost${port}/*`);
-    patterns.add(`http://[::1]${port}/*`);
+    patterns.add(`${u.protocol}//127.0.0.1${port}/*`);
+    patterns.add(`${u.protocol}//localhost${port}/*`);
+    patterns.add(`${u.protocol}//[::1]${port}/*`);
   }
 
   return [...patterns];

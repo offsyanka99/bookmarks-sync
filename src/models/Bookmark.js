@@ -1,6 +1,6 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../utils/db');
-const { canonicalIso } = require('../utils/timeCanon');
+const { canonicalIso, capClientIso } = require('../utils/timeCanon');
 const { encodePageToken, decodePageToken } = require('../utils/pageToken');
 
 function nowIso() {
@@ -59,6 +59,40 @@ function cleanParentId(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+/**
+ * Reject a sync row that would throw while storing or while a browser creates it.
+ * Folder rows (empty url or __dir__) do not need a URL. Tombstones only need an id.
+ * @param {unknown} item
+ * @returns {string|null}
+ */
+function syncItemError(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return 'bookmark must be an object';
+  if (item.id != null && typeof item.id !== 'string') return 'id must be a string';
+  if (item.title != null && typeof item.title !== 'string') return 'title must be a string';
+  if (item.folder != null && typeof item.folder !== 'string') return 'folder must be a string';
+  if (item.notes != null && typeof item.notes !== 'string') return 'notes must be a string';
+  if (item.favicon != null && typeof item.favicon !== 'string') return 'favicon must be a string';
+  if (item.position != null && typeof item.position !== 'number') return 'position must be a number';
+  if (typeof item.position === 'number' && !Number.isFinite(item.position)) {
+    return 'position must be a number';
+  }
+  if (item.tags != null && !Array.isArray(item.tags) && typeof item.tags !== 'string') {
+    return 'tags must be an array';
+  }
+  if (item.deletedAt) {
+    if (typeof item.id !== 'string' || !item.id.trim()) return 'tombstone requires an id';
+    return null;
+  }
+  const tagsArr = Array.isArray(item.tags) ? item.tags : [];
+  const isDir = tagsArr.includes('__dir__') || item.url === '' || item.url == null;
+  if (item.url != null && typeof item.url !== 'string') return 'url must be a string';
+  if (!isDir) {
+    if (typeof item.url !== 'string' || !item.url.trim()) return 'url is required';
+    if (item.url.length > 8192) return 'url is too long';
+  }
+  return null;
 }
 
 /** Next per-user change sequence. Gaps are fine; the value only moves forward. */
@@ -1029,6 +1063,17 @@ class Bookmark {
       }
 
       for (const item of liveFirst.concat(tombsLast)) {
+        const invalid = syncItemError(item);
+        if (invalid) {
+          stats.skipped += 1;
+          conflicts.push({
+            id: typeof item?.id === 'string' ? item.id : null,
+            reason: 'invalid',
+            message: invalid,
+          });
+          continue;
+        }
+
         // Allow folder rows (empty url + __dir__ tag) and normal URL bookmarks
         const tagsArr = Array.isArray(item.tags)
           ? item.tags
@@ -1047,6 +1092,7 @@ class Bookmark {
         const isDir =
           !isTombstone &&
           (tagsArr.includes('__dir__') || item.url === '' || item.url == null);
+        const tagsOmitted = item.tags === undefined;
 
         // Tombstones only need an id; live rows need url/title as before
         if (isTombstone) {
@@ -1065,8 +1111,23 @@ class Bookmark {
         }
 
         let id = item.id || randomUUID();
-        const clientUpdatedAt = canonicalOr(item.updatedAt, null) || canonicalOr(clientDeletedAt, null) || ts;
-        const canonicalDeleted = clientDeletedAt ? canonicalOr(clientDeletedAt, ts) : null;
+        const serverNowMs = Date.parse(ts);
+        // Cap future client clocks so one device cannot lock last-write-wins for years.
+        const clientUpdatedAt =
+          capClientIso(item.updatedAt, serverNowMs) ||
+          capClientIso(clientDeletedAt, serverNowMs) ||
+          ts;
+        const canonicalDeleted = clientDeletedAt
+          ? capClientIso(clientDeletedAt, serverNowMs) || ts
+          : null;
+        let existing = this.findById(userId, id, { includeDeleted: true });
+        // Omitted notes, favicon, and tags mean "this client does not edit them".
+        // An explicit empty string or empty array still clears the field.
+        const notes = item.notes !== undefined ? item.notes : existing?.notes || '';
+        const favicon = item.favicon !== undefined ? item.favicon || null : existing?.favicon ?? null;
+        const keptTags = tagsOmitted && existing
+          ? (Array.isArray(existing.tags) ? existing.tags : [])
+          : tagsArr;
         const payload = {
           id,
           user_id: userId,
@@ -1075,17 +1136,15 @@ class Bookmark {
           folder: item.folder ?? '',
           parent_id: cleanParentId(item.parentId),
           tags: serializeTags(
-            isDir ? [...new Set([...tagsArr, '__dir__'])] : tagsArr
+            isDir ? [...new Set([...keptTags, '__dir__'])] : keptTags
           ),
-          notes: item.notes ?? '',
-          favicon: item.favicon ?? null,
+          notes,
+          favicon,
           position: Number.isFinite(item.position) ? item.position : 0,
-          created_at: canonicalOr(item.createdAt, ts),
+          created_at: capClientIso(item.createdAt, serverNowMs) || ts,
           updated_at: clientUpdatedAt,
           deleted_at: canonicalDeleted,
         };
-
-        let existing = this.findById(userId, id, { includeDeleted: true });
 
         // Tombstone for unknown id: record soft-deleted row so membership stays consistent
         if (!existing && isTombstone) {
@@ -1128,6 +1187,13 @@ class Bookmark {
               url: normalizeUrl(payload.url),
             });
             stats.merged += 1;
+            // The client id is new, so omitted fields must be kept from the twin, not blanked.
+            if (item.notes === undefined) payload.notes = twin.notes || '';
+            if (item.favicon === undefined) payload.favicon = twin.favicon ?? null;
+            if (tagsOmitted) {
+              const prev = Array.isArray(twin.tags) ? twin.tags : [];
+              payload.tags = serializeTags(prev);
+            }
             const outcome = applyAgainstExisting(twin, payload, item, clientUpdatedAt);
             seenIds.push(twin.id);
             if (outcome === 'live') liveIds.push(twin.id);

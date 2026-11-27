@@ -8,7 +8,7 @@
 |---|---|
 | **Store item ID** | `ndiehbfpikbmhdgffcfohoeojlmfbpal` |
 | **Status** | Live (Google-signed) |
-| **Current package version** | **1.2.1** |
+| **Current package version** | **1.2.2** |
 
 Chrome does **not** use a local “sign this XPI” flow like Firefox.  
 You upload a **ZIP** to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole); Google hosts and signs the published item.
@@ -17,7 +17,20 @@ This document is for **maintainers** updating the live listing. End users should
 
 ---
 
-## Submit update 1.2.1 (checklist)
+## Submit update 1.2.2 (checklist)
+
+### Package ready to upload
+
+| Item | Path |
+|---|---|
+| **ZIP (upload this)** | [`dist/bookmarks-sync-chrome-1.2.2.zip`](../dist/bookmarks-sync-chrome-1.2.2.zip) |
+| Stable name (same bytes) | `dist/bookmarks-sync-chrome.zip` |
+| Manifest version | `1.2.2` |
+| Server | Bookmarks Sync **1.3.2** |
+
+What’s new: large merges and uploads are split safely; automatic sync always merges; the host prompt is only the API origin; same-titled sibling folders stay separate. Needs server **1.3.2** to keep notes, favicon, and tags and to cap future timestamps.
+
+### Submit update 1.2.1 (checklist)
 
 ### Package ready to upload
 
@@ -78,16 +91,18 @@ Pre-generated at required sizes under [`docs/chrome-store/`](../docs/chrome-stor
 ### Dashboard steps (update)
 
 1. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → item **`ndiehbfpikbmhdgffcfohoeojlmfbpal`**.
-2. **Package** → **Upload new package** → select `dist/bookmarks-sync-chrome-1.2.1.zip`.
+2. **Package** → **Upload new package** → select `dist/bookmarks-sync-chrome-1.2.2.zip`.
 3. **Store listing** → upload/replace screenshots + promo tiles if desired (optional for this release).
-4. **Privacy** → confirm practices still match §4 (no change required for 1.2.1).
+4. **Privacy** → confirm practices still match §4. The host prompt now asks only for the configured API origin. The manifest still lists optional `http` and `https` patterns so that origin can be granted.
 5. **What's new** (this version) — paste:
 
 ```text
-• Fixes "Index out of bounds" when a download creates a folder before the links that share its parent
-• Sibling order is applied after the tree exists, including sparse positions
-• Same privacy model: data only goes to the API URL you configure
-• Use with Bookmarks Sync server 1.3.1
+• Large merges keep folder and URL matches from every part of the upload
+• Large uploads are split instead of failing when the library exceeds the server limit
+• Scheduled and change-based sync always merge. Download and Upload run from Sync now
+• The connection prompt asks only for your API address
+• Two folders with the same name stay separate
+• Use with Bookmarks Sync server 1.3.2
 ```
 
 6. Review permissions justifications (unchanged — see table below).
@@ -102,7 +117,7 @@ Keep the same store item ID so user settings survive the update.
 2. Options → API URL + key → **Save** → allow host access.
 3. **Test connection** — should list `Time format: 24h` or `12h` when server is 1.2.2+.
 4. Two browsers on **Merge**: add → sync both; delete on one → sync both — delete should stick.
-5. Confirm popup footer shows **v1.2.1**.
+5. Confirm popup footer shows **v1.2.2**.
 
 Do **not** load the Firefox folder into Chrome.
 
@@ -119,7 +134,7 @@ npm run ext:pack-chrome
 Creates:
 
 ```text
-dist/bookmarks-sync-chrome-1.2.1.zip   # versioned (upload this)
+dist/bookmarks-sync-chrome-1.2.2.zip   # versioned (upload this)
 dist/bookmarks-sync-chrome.zip         # same contents, stable name
 ```
 

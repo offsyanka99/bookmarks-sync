@@ -145,6 +145,76 @@ export function encodeFolder(root, relativePath) {
   return `${r}:${p}`;
 }
 
+/**
+ * Unit separator between a duplicated sibling title and its stable id.
+ * The visible bookmark title is unchanged. Only the folder path used for
+ * server duplicate detection gets the suffix, and only when two siblings
+ * share a title. A unique title stays `other:Work`.
+ */
+export const FOLDER_DISCRIMINATOR = '\u001f';
+
+/**
+ * Give children of same-titled sibling folders distinct folder paths.
+ * The discriminator is the server id when this browser already has one,
+ * otherwise the local bookmark id (replaced by the server id on a later sync).
+ * @param {object[]} items
+ * @param {Record<string, string>} [localToServer]
+ * @returns {object[]}
+ */
+export function disambiguateFolderPaths(items, localToServer = {}) {
+  const list = Array.isArray(items) ? items : [];
+  const byLocal = new Map();
+  for (const item of list) {
+    if (item?.localId) byLocal.set(String(item.localId), item);
+  }
+
+  const foldersByParent = new Map();
+  for (const item of list) {
+    const isFolder = item?.kind === 'folder' || (item?.tags || []).includes(DIR_TAG);
+    if (!isFolder || !item.localId) continue;
+    const parentKey = item.parentLocalId ? String(item.parentLocalId) : '';
+    if (!foldersByParent.has(parentKey)) foldersByParent.set(parentKey, []);
+    foldersByParent.get(parentKey).push(item);
+  }
+
+  const segmentByLocal = new Map();
+  for (const group of foldersByParent.values()) {
+    const byTitle = new Map();
+    for (const folder of group) {
+      const title = folder.title || '(untitled)';
+      if (!byTitle.has(title)) byTitle.set(title, []);
+      byTitle.get(title).push(folder);
+    }
+    for (const [title, folders] of byTitle) {
+      if (folders.length < 2) {
+        for (const folder of folders) segmentByLocal.set(String(folder.localId), title);
+        continue;
+      }
+      for (const folder of folders) {
+        const disc = localToServer[folder.localId] || folder.localId;
+        segmentByLocal.set(String(folder.localId), `${title}${FOLDER_DISCRIMINATOR}${disc}`);
+      }
+    }
+  }
+
+  return list.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const parts = [];
+    const seen = new Set();
+    let parentId = item.parentLocalId ? String(item.parentLocalId) : '';
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byLocal.get(parentId);
+      if (!parent) break;
+      parts.push(segmentByLocal.get(parentId) || parent.title || '(untitled)');
+      parentId = parent.parentLocalId ? String(parent.parentLocalId) : '';
+    }
+    parts.reverse();
+    const { root } = decodeFolder(item.folder);
+    return { ...item, folder: encodeFolder(root, encodePath(parts)) };
+  });
+}
+
 export function decodeFolder(folder) {
   const s = String(folder ?? '');
   const m = /^(toolbar|other|menu|mobile):(.*)$/s.exec(s);

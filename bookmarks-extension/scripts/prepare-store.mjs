@@ -177,11 +177,12 @@ Privacy policy URL:
   https://github.com/offsyanka99/bookmarks-sync/blob/main/docs/PRIVACY.md
 
 What's new (paste):
-• Fixes "Index out of bounds" when a download creates a folder before the links that share its parent
-• Sibling order is applied after the tree exists, including sparse positions
-• Chrome and Firefox builds both include the fix
-• Same privacy model: data only goes to the API URL you configure
-• Use with Bookmarks Sync server 1.3.1
+• Large merges keep folder and URL matches from every part of the upload
+• Large uploads are split instead of failing when the library exceeds the server limit
+• Scheduled and change-based sync always merge. Download and Upload run from Sync now
+• The connection prompt asks only for your API address
+• Two folders with the same name stay separate
+• Use with Bookmarks Sync server 1.3.2
 
 Single purpose:
   Sync the user’s browser bookmarks with their self-hosted Bookmarks Sync server.
