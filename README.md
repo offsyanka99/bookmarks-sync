@@ -38,7 +38,7 @@ Options (server URL, API key, sync behaviour) and the toolbar popup:
 - **Automatic sync** (startup, schedule, bookmark changes) always merges. Download and Upload run only when you click Sync now.
 - **Host permission** prompt asks only for the API origin you configured.
 - **Same-titled sibling folders** stay separate. Notes, favicon, and tags set by another client are kept (server **1.3.2**).
-- **Packages:** `dist/bookmarks-sync-chrome-1.2.2.zip`. Unsigned Firefox build: `dist/bookmarks-sync-firefox-1.2.2.xpi`. The Mozilla-signed XPI in the repo is still **1.1.3** (`dist/bookmarks-sync-firefox.xpi`) until `npm run ext:sign-firefox`.
+- **Packages:** `dist/bookmarks-sync-chrome-1.2.2.zip`. Mozilla-signed Firefox: `dist/bookmarks-sync-firefox-1.2.2.xpi` (same bytes as `dist/bookmarks-sync-firefox.xpi`).
 
 ### What’s new in 1.3.2
 
@@ -201,7 +201,6 @@ bookmarks-sync/
 **Not yet**
 
 - End-user web UI for managing bookmarks in the browser
-- Signed Firefox AMO package for extension **1.2.2** (1.1.3 remains the last Mozilla-signed XPI in `dist/` until it is re-signed)
 
 ---
 
@@ -827,14 +826,14 @@ Works in Chrome and other Chromium browsers that support the Chrome Web Store (i
 **Permanent (recommended — works on release Firefox when signed):**
 
 ```text
-dist/bookmarks-sync-firefox-1.1.3.xpi   # last Mozilla-signed build
-dist/bookmarks-sync-firefox-1.2.2.xpi   # unsigned 1.2.2 (Developer Edition / Nightly, or sign first)
+dist/bookmarks-sync-firefox-1.2.2.xpi   # Mozilla-signed 1.2.2
+dist/bookmarks-sync-firefox.xpi         # stable name, same signed bytes
 ```
 
 1. `about:addons` → gear → **Install Add-on From File…**
-2. Choose `dist/bookmarks-sync-firefox-1.1.3.xpi` on release Firefox (the 1.2.2 XPI is unsigned) → confirm → **Options** → API URL + key → **Save**.
+2. Choose `dist/bookmarks-sync-firefox-1.2.2.xpi` (or `dist/bookmarks-sync-firefox.xpi`) → confirm → **Options** → API URL + key → **Save**.
 
-Release Firefox requires a **Mozilla-signed** XPI. `npm run ext:pack-firefox` writes an unsigned package. `npm run ext:sign-firefox` signs it when `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` are set. The stable `dist/bookmarks-sync-firefox.xpi` in the repo stays the signed **1.1.3** build until 1.2.2 is signed.
+Release Firefox requires a **Mozilla-signed** XPI (`META-INF/mozilla.rsa`). `npm run ext:pack-firefox` overwrites both names with an unsigned package. Restore the signed 1.2.2 files afterward, or run `npm run ext:sign-firefox` when `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` are set.
 
 **Temporary (dev only — removed when Firefox quits):**
 
@@ -904,7 +903,7 @@ Authorization: Bearer bms_<your-user-api-key>
 | Sync hits wrong service | URL must be **API** port, not admin port |
 | `service_worker is currently disabled` | Load `bookmarks-extension/firefox/`, not `chrome/` |
 | Firefox missing latest UI/code | Run `npm run ext:sync`, then reload the temporary add-on |
-| Firefox extension gone after close | Temporary add-on only lasts one session — install the signed `dist/bookmarks-sync-firefox-1.1.3.xpi` |
+| Firefox extension gone after close | Temporary add-on only lasts one session — install the signed `dist/bookmarks-sync-firefox-1.2.2.xpi` |
 | Changes not pushing | Strategy set to **Download**? Switch to **Merge** or **Upload** |
 | Server rejects large payload | Raise `MAX_SYNC_SIZE_BYTES` or split/clean bookmarks |
 

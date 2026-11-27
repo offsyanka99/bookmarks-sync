@@ -14,11 +14,11 @@ For a **permanent** install that **survives restarts** and **keeps Options** (AP
 A **signed** release package is under `dist/`:
 
 ```text
-dist/bookmarks-sync-firefox-1.1.3.xpi   # last Mozilla-signed build (1.1.3)
-dist/bookmarks-sync-firefox-1.1.1.xpi   # previous signed release
+dist/bookmarks-sync-firefox-1.2.2.xpi   # Mozilla-signed 1.2.2
+dist/bookmarks-sync-firefox.xpi         # stable name, same signed bytes
+dist/bookmarks-sync-firefox-1.1.3.xpi   # previous signed release
+dist/bookmarks-sync-firefox-1.1.1.xpi   # older signed release
 dist/bookmarks-sync-firefox-1.1.0.xpi   # older signed release
-dist/bookmarks-sync-firefox-1.2.2.xpi   # unsigned 1.2.2 (sign before release Firefox)
-dist/bookmarks-sync-firefox.xpi         # stable name = latest signed (still 1.1.3 until 1.2.2 is signed)
 ```
 
 AMO may also name downloads like `befd3a8e446247cfa279-1.1.3.xpi` — same signed bytes; prefer the names above in the repo.
@@ -32,7 +32,7 @@ Unsigned rebuilds only work on Developer Edition / Nightly (Option A) or after y
 1. Download the `.xpi` from the repo (`dist/` on GitHub, or your clone).
 2. Open Firefox → `about:addons`.
 3. Gear icon ⚙ → **Install Add-on From File…**
-4. Choose `dist/bookmarks-sync-firefox-1.1.3.xpi` (or `dist/bookmarks-sync-firefox.xpi`).
+4. Choose `dist/bookmarks-sync-firefox-1.2.2.xpi` (or `dist/bookmarks-sync-firefox.xpi`).
 5. Confirm permissions → **Options** → API base URL + API key → **Save** (allow host access for that origin).
 6. **Test connection** → **Sync now** from the toolbar popup.
 
@@ -43,7 +43,7 @@ Host access is **optional** (not granted for all sites at install). You must cli
 
 ---
 
-## Sign release 1.1.3 (maintainer checklist)
+## Sign a release (maintainer checklist)
 
 Source and lint are ready. Signing requires **your** AMO credentials (not stored in the repo).
 
@@ -51,14 +51,14 @@ Source and lint are ready. Signing requires **your** AMO credentials (not stored
 
 | Check | Status |
 |---|---|
-| Manifest version | `1.1.3` |
+| Manifest version | `1.2.2` |
 | Gecko id | `bookmarks-sync@offsyanka99.github.io` |
 | `data_collection_permissions` | `bookmarksInfo` (AMO requirement) |
 | `strict_min_version` (desktop) | `140.0` (required with `data_collection_permissions`) |
 | `gecko_android.strict_min_version` | `142.0` |
 | Host access | `optional_host_permissions` only (no required `host_permissions`) |
 | `web-ext lint` | `npm run ext:lint-firefox` → 0 errors |
-| Signed release in repo | `dist/bookmarks-sync-firefox-1.1.3.xpi` (+ stable `dist/bookmarks-sync-firefox.xpi`) |
+| Signed release in repo | `dist/bookmarks-sync-firefox-1.2.2.xpi` (+ stable `dist/bookmarks-sync-firefox.xpi`) |
 | Rebuild unsigned | `npm run ext:pack-firefox` (re-sign before shipping) |
 
 ### 2. AMO API credentials (one-time)
@@ -89,14 +89,14 @@ This will:
 3. Write:
 
 ```text
-dist/bookmarks-sync-firefox-1.1.3.xpi
+dist/bookmarks-sync-firefox-1.2.2.xpi
 dist/bookmarks-sync-firefox.xpi
 ```
 
 Confirm the file is signed:
 
 ```bash
-unzip -l dist/bookmarks-sync-firefox-1.1.3.xpi | grep META-INF/mozilla.rsa
+unzip -l dist/bookmarks-sync-firefox-1.2.2.xpi | grep META-INF/mozilla.rsa
 ```
 
 ### 4. Optional — public AMO listing
@@ -121,7 +121,7 @@ Then finish listing text / review in the [AMO developer hub](https://addons.mozi
 - The host prompt asks only for the API origin. Two folders with the same name stay separate
 - Notes, favicon, and tags are kept when the server is **1.3.2**
 
-The signed file in this repo is still **1.1.3** until `npm run ext:sign-firefox` is run for 1.2.2. The unsigned package is `dist/bookmarks-sync-firefox-1.2.2.xpi`.
+Mozilla-signed **1.2.2** is `dist/bookmarks-sync-firefox-1.2.2.xpi` and `dist/bookmarks-sync-firefox.xpi`.
 
 ### What’s new in 1.2.1
 
@@ -129,7 +129,7 @@ The signed file in this repo is still **1.1.3** until `npm run ext:sign-firefox`
 - Sibling order is applied after every bookmark exists, including sparse positions
 - Firefox uses the same apply code as Chrome
 
-The signed file in this repo is still **1.1.3** until `npm run ext:sign-firefox` is run for 1.2.1. The unsigned package is `dist/bookmarks-sync-firefox-1.2.1.xpi`.
+1.2.1 was packed unsigned (`dist/bookmarks-sync-firefox-1.2.1.xpi`). The signed package moved forward with 1.2.2.
 
 ### What’s new in 1.2.0
 
@@ -165,8 +165,8 @@ From the **repo root**:
 
 ```bash
 npm run ext:pack-firefox
-# → dist/bookmarks-sync-firefox-1.2.2.xpi  (unsigned)
-# → dist/bookmarks-sync-firefox.xpi        (same bytes, unsigned — restore the signed 1.1.3 here until 1.2.2 is signed)
+# → dist/bookmarks-sync-firefox-1.2.2.xpi  (unsigned — overwrites the signed file)
+# → dist/bookmarks-sync-firefox.xpi        (same unsigned bytes — restore the signed 1.2.2 afterward)
 ```
 
 ```bash
